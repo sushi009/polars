@@ -1,3 +1,9 @@
+# Polars with extra features
+
+- Add back support for arrow and polars-arrow conversion removed in [here](https://github.com/pola-rs/polars/pull/19312/files)
+
+<br/>
+
 <h1 align="center">
   <a href="https://pola.rs">
     <img src="https://raw.githubusercontent.com/pola-rs/polars-static/master/banner/polars_github_banner.svg" alt="Polars logo">

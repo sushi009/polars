@@ -25,6 +25,10 @@ atoi = "2"
 atoi_simd = "0.15.5"
 atomic-waker = "1"
 avro-schema = { version = "0.3" }
+arrow-array = { version = "53", default-features = false }
+arrow-buffer = { version = "53", default-features = false }
+arrow-data = { version = "53", default-features = false }
+arrow-schema = { version = "53", default-features = false }
 base64 = "0.22.0"
 bitflags = "2"
 bytemuck = { version = "1.11", features = ["derive", "extern_crate_alloc"] }

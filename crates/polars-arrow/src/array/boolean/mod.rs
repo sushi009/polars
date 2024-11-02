@@ -7,6 +7,9 @@ use crate::bitmap::{Bitmap, MutableBitmap};
 use crate::datatypes::{ArrowDataType, PhysicalType};
 use crate::trusted_len::TrustedLen;
 
+#[cfg(feature = "arrow_rs")]
+mod data;
+
 mod ffi;
 pub(super) mod fmt;
 mod from;
