@@ -237,10 +237,9 @@ impl From<ArrowDataType> for arrow_schema::DataType {
                 Self::Decimal256(precision as _, scale as _)
             },
             ArrowDataType::Extension(_, d, _) => (*d).into(),
-            ArrowDataType::BinaryView | ArrowDataType::Utf8View => {
-                panic!("view datatypes not supported by arrow-rs")
-            },
-            ArrowDataType::Unknown => unimplemented!(),
+            ArrowDataType::Utf8View => Self::LargeUtf8,
+            ArrowDataType::BinaryView => Self::LargeBinary,
+            ArrowDataType::Unknown => unimplemented!("'ArrowDataType::Unknown' datatype"),
         }
     }
 }
@@ -306,6 +305,8 @@ impl From<arrow_schema::DataType> for ArrowDataType {
             DataType::RunEndEncoded(_, _) => {
                 panic!("Run-end encoding not supported by polars_arrow")
             },
+            DataType::Utf8View => Self::Utf8View,
+            DataType::BinaryView => Self::BinaryView,
             // This ensures that it doesn't fail to compile when new variants are added to Arrow
             #[allow(unreachable_patterns)]
             dtype => unimplemented!("unsupported datatype: {dtype}"),

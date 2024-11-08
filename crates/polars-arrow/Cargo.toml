@@ -72,6 +72,7 @@ arrow-array = { workspace = true, optional = true }
 arrow-buffer = { workspace = true, optional = true }
 arrow-data = { workspace = true, optional = true }
 arrow-schema = { workspace = true, optional = true }
+arrow-cast = { workspace = true, optional = true }
 
 # For async arrow flight conversion
 async-stream = { version = "0.3", optional = true }
@@ -118,7 +119,7 @@ full = [
   # parses timezones used in timestamp conversions
   "chrono-tz",
 ]
-arrow_rs = ["arrow-buffer", "arrow-schema", "arrow-data", "arrow-array"]
+arrow_rs = ["arrow-buffer", "arrow-schema", "arrow-data", "arrow-array", "arrow-cast"]
 io_ipc = ["arrow-format", "polars-error/arrow-format"]
 io_ipc_compression = ["lz4", "zstd", "io_ipc"]
 io_flight = ["io_ipc", "arrow-format/flight-data", "async-stream", "futures", "tokio"]

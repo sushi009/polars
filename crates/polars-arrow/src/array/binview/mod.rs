@@ -1,4 +1,8 @@
 //! See thread: https://lists.apache.org/thread/w88tpz76ox8h3rxkjl4so6rg3f1rv7wt
+
+#[cfg(feature = "arrow_rs")]
+mod data;
+
 mod ffi;
 pub(super) mod fmt;
 mod iterator;
