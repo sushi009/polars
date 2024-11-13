@@ -314,8 +314,8 @@ impl<T: NativeType> PrimitiveArray<T> {
         (dtype, values, validity)
     }
 
-    /// Creates a `[PrimitiveArray]` from its internal representation.
-    /// This is the inverted from `[PrimitiveArray::into_inner]`
+    /// Creates a [`PrimitiveArray`] from its internal representation.
+    /// This is the inverted from [`PrimitiveArray::into_inner`]
     pub fn from_inner(
         dtype: ArrowDataType,
         values: Buffer<T>,
@@ -325,8 +325,8 @@ impl<T: NativeType> PrimitiveArray<T> {
         Ok(unsafe { Self::from_inner_unchecked(dtype, values, validity) })
     }
 
-    /// Creates a `[PrimitiveArray]` from its internal representation.
-    /// This is the inverted from `[PrimitiveArray::into_inner]`
+    /// Creates a [`PrimitiveArray`] from its internal representation.
+    /// This is the inverted from [`PrimitiveArray::into_inner`]
     ///
     /// # Safety
     /// Callers must ensure all invariants of this struct are upheld.

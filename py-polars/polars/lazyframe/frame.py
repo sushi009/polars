@@ -111,6 +111,7 @@ if TYPE_CHECKING:
         Label,
         Orientation,
         PolarsDataType,
+        PythonDataType,
         RollingInterpolationMethod,
         SchemaDefinition,
         SchemaDict,
@@ -2899,7 +2900,9 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
     def cast(
         self,
         dtypes: (
-            Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
+            Mapping[
+                ColumnNameOrSelector | PolarsDataType, PolarsDataType | PythonDataType
+            ]
             | PolarsDataType
         ),
         *,
@@ -2979,6 +2982,7 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
          'ham': ['2020-01-02', '2021-03-04', '2022-05-06']}
         """
         if not isinstance(dtypes, Mapping):
+            dtypes = parse_into_dtype(dtypes)
             return self._from_pyldf(self._ldf.cast_all(dtypes, strict))
 
         cast_map = {}
@@ -5667,7 +5671,7 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
         │ 4   ┆ 13.0 │
         └─────┴──────┘
         """
-        dtypes: Sequence[PolarsDataType]
+        dtypes: Sequence[PolarsDataType] | None
 
         if value is not None:
 
@@ -5675,7 +5679,7 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
                 return next(iter(self.select(value).collect_schema().values()))
 
             if isinstance(value, pl.Expr):
-                dtypes = [infer_dtype(value)]
+                dtypes = None
             elif isinstance(value, bool):
                 dtypes = [Boolean]
             elif matches_supertype and isinstance(value, (int, float)):
@@ -5707,9 +5711,12 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
                 dtypes = [String, Categorical]
             else:
                 # fallback; anything not explicitly handled above
-                dtypes = [infer_dtype(F.lit(value))]
+                dtypes = None
 
-            return self.with_columns(F.col(dtypes).fill_null(value, strategy, limit))
+            if dtypes:
+                return self.with_columns(
+                    F.col(dtypes).fill_null(value, strategy, limit)
+                )
 
         return self.select(F.all().fill_null(value, strategy, limit))
 
