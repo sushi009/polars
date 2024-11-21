@@ -1627,6 +1627,11 @@ class DataFrame:
             True -> Values are Series
             False -> Values are List[Any]
 
+        See Also
+        --------
+        rows_by_key
+        to_dicts
+
         Examples
         --------
         >>> df = pl.DataFrame(
@@ -4548,7 +4553,7 @@ class DataFrame:
         Parameters
         ----------
         index
-            Index at which to insert the new `Series` column.
+            Index at which to insert the new column.
         column
             `Series` or expression to insert.
 
@@ -10383,6 +10388,7 @@ class DataFrame:
         --------
         rows : Materialize all frame data as a list of rows (potentially expensive).
         iter_rows : Row iterator over frame data (does not materialize all rows).
+        to_dict : Convert DataFrame to a dictionary mapping column name to values.
 
         Examples
         --------
