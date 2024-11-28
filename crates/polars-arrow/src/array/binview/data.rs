@@ -1,8 +1,8 @@
 use arrow_data::ArrayData;
 
+use super::utf8_to::{binary_to_binview, utf8_to_utf8view};
 use super::{BinaryViewArray, Utf8ViewArray};
 use crate::array::{Array, Arrow2Arrow, BinaryArray, MutableBinaryValuesArray, Utf8Array};
-use crate::compute::cast::{binary_to_binview, utf8_to_utf8view, utf8view_to_utf8};
 use crate::offset::Offset;
 
 /// This is highly inefficent as we are punting the conversion to `Utf8Array`
@@ -39,7 +39,23 @@ impl Arrow2Arrow for BinaryViewArray {
     }
 }
 
-// This is method is copied from elsewhere because it wasn't pub
+/// NOTE: Copied from polars-compute crate
+pub fn utf8view_to_utf8<O: Offset>(array: &Utf8ViewArray) -> Utf8Array<O> {
+    let array = array.to_binview();
+    let out = view_to_binary::<O>(&array);
+
+    let dtype = Utf8Array::<O>::default_dtype();
+    unsafe {
+        Utf8Array::new_unchecked(
+            dtype,
+            out.offsets().clone(),
+            out.values().clone(),
+            out.validity().cloned(),
+        )
+    }
+}
+
+/// NOTE: Copied from polars-compute crate
 fn view_to_binary<O: Offset>(array: &BinaryViewArray) -> BinaryArray<O> {
     let len: usize = Array::len(array);
     let mut mutable = MutableBinaryValuesArray::<O>::with_capacities(len, array.total_bytes_len());

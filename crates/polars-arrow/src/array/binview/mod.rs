@@ -2,6 +2,8 @@
 
 #[cfg(feature = "arrow_rs")]
 mod data;
+#[allow(unused)]
+mod utf8_to;
 
 mod ffi;
 pub(super) mod fmt;
