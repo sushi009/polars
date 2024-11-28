@@ -86,6 +86,7 @@ from polars.functions import (
     collect_all,
     collect_all_async,
     concat,
+    concat_arr,
     concat_list,
     concat_str,
     corr,
@@ -329,6 +330,7 @@ __all__ = [
     "col",
     "collect_all",
     "collect_all_async",
+    "concat_arr",
     "concat_list",
     "concat_str",
     "corr",
@@ -432,6 +434,10 @@ def __getattr__(name: str) -> Any:
 
 
 # fork() breaks Polars thread pool, so warn users who might be doing this.
+# Keep track so that we warn only once
+_WARNED = False
+
+
 def __install_postfork_hook() -> None:
     message = """\
 Using fork() can cause Polars to deadlock in the child process.
@@ -443,14 +449,22 @@ multiprocessing module on Linux, which uses fork() by default. This will be
 fixed in Python 3.14. Until then, you want to use the "spawn" context instead.
 
 See https://docs.pola.rs/user-guide/misc/multiprocessing/ for details.
+
+If you really know what your doing, you can silence this warning with the warning module
+or by setting POLARS_ALLOW_FORKING_THREAD=1.
 """
+    import os
+
+    if os.environ.get("POLARS_ALLOW_FORKING_THREAD") == "1":
+        return None
 
     def before_hook() -> None:
-        import warnings
+        global _WARNED
+        if not _WARNED:
+            import warnings
 
-        warnings.warn(message, RuntimeWarning, stacklevel=2)
-
-    import os
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
+            _WARNED = True
 
     if hasattr(os, "register_at_fork"):
         os.register_at_fork(before=before_hook)

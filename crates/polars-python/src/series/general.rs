@@ -3,11 +3,13 @@ use std::io::Cursor;
 use polars_core::chunked_array::cast::CastOptions;
 use polars_core::series::IsSorted;
 use polars_core::utils::flatten::flatten_series;
+use polars_row::RowEncodingOptions;
 use pyo3::exceptions::{PyIndexError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::Python;
 
+use self::row_encode::get_row_encoding_dictionary;
 use super::PySeries;
 use crate::dataframe::PyDataFrame;
 use crate::error::PyPolarsErr;
@@ -533,6 +535,75 @@ impl PySeries {
             .allow_threads(|| polars_ops::series::negate_bitwise(&self.series))
             .map_err(PyPolarsErr::from)?;
         Ok(out.into())
+    }
+
+    /// Internal utility function to allow direct access to the row encoding from python.
+    #[pyo3(signature = (dtypes, opts))]
+    fn _row_decode<'py>(
+        &'py self,
+        py: Python<'py>,
+        dtypes: Vec<(String, Wrap<DataType>)>,
+        opts: Vec<(bool, bool, bool)>,
+    ) -> PyResult<PyDataFrame> {
+        py.allow_threads(|| {
+            assert_eq!(dtypes.len(), opts.len());
+
+            let opts = opts
+                .into_iter()
+                .map(|(descending, nulls_last, no_order)| {
+                    let mut opt = RowEncodingOptions::default();
+
+                    opt.set(RowEncodingOptions::DESCENDING, descending);
+                    opt.set(RowEncodingOptions::NULLS_LAST, nulls_last);
+                    opt.set(RowEncodingOptions::NO_ORDER, no_order);
+
+                    opt
+                })
+                .collect::<Vec<_>>();
+
+            // The polars-row crate expects the physical arrow types.
+            let arrow_dtypes = dtypes
+                .iter()
+                .map(|(_, dtype)| dtype.0.to_physical().to_arrow(CompatLevel::newest()))
+                .collect::<Vec<_>>();
+
+            let dicts = dtypes
+                .iter()
+                .map(|(_, dtype)| get_row_encoding_dictionary(&dtype.0))
+                .collect::<Vec<_>>();
+
+            // Get the BinaryOffset array.
+            let arr = self.series.rechunk();
+            let arr = arr.binary_offset().map_err(PyPolarsErr::from)?;
+            assert_eq!(arr.chunks().len(), 1);
+            let mut values = arr
+                .downcast_iter()
+                .next()
+                .unwrap()
+                .values_iter()
+                .collect::<Vec<&[u8]>>();
+
+            let columns = PyResult::Ok(unsafe {
+                polars_row::decode::decode_rows(&mut values, &opts, &dicts, &arrow_dtypes)
+            })?;
+
+            // Construct a DataFrame from the result.
+            let columns = columns
+                .into_iter()
+                .zip(dtypes)
+                .map(|(arr, (name, dtype))| {
+                    unsafe {
+                        Series::from_chunks_and_dtype_unchecked(
+                            PlSmallStr::from(name),
+                            vec![arr],
+                            &dtype.0,
+                        )
+                    }
+                    .into_column()
+                })
+                .collect::<Vec<_>>();
+            Ok(DataFrame::new(columns).map_err(PyPolarsErr::from)?.into())
+        })
     }
 }
 
