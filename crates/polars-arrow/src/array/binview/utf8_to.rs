@@ -78,8 +78,10 @@ type OffsetType = i8;
 // chunks so that we don't overflow the offset u32.
 fn truncate_buffer(buf: &Buffer<u8>) -> Buffer<u8> {
     // * 2, as it must be able to hold u32::MAX offset + u32::MAX len.
-    buf.clone()
-        .sliced(0, std::cmp::min(buf.len(), OffsetType::MAX as usize * 2))
+    let max_len = (OffsetType::MAX as usize)
+        .checked_mul(2)
+        .unwrap_or(usize::MAX);
+    buf.clone().sliced(0, std::cmp::min(buf.len(), max_len))
 }
 
 pub fn binary_to_binview<O: Offset>(arr: &BinaryArray<O>) -> BinaryViewArray {
