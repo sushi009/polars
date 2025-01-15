@@ -516,7 +516,7 @@ class Expr:
             Ignore null values (default).
 
             If set to `False`, `Kleene logic`_ is used to deal with nulls:
-            if the column contains any null values and no `True` values,
+            if the column contains any null values and no `False` values,
             the output is null.
 
             .. _Kleene logic: https://en.wikipedia.org/wiki/Three-valued_logic
@@ -1753,7 +1753,8 @@ class Expr:
         dtype
             DataType to cast to.
         strict
-            If True invalid casts generate exceptions instead of `null`\s.
+            Raise if cast is invalid on rows after predicates are pushed down.
+            If `False`, invalid casts will produce null values.
         wrap_numerical
             If True numeric casts wrap overflowing values instead of
             marking the cast as invalid.
@@ -6200,7 +6201,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         window_size
             The length of the window. Can be a dynamic temporal
             size indicated by a timedelta or the following string language:
@@ -6322,7 +6325,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         window_size
             The length of the window. Can be a dynamic temporal
             size indicated by a timedelta or the following string language:
@@ -6470,7 +6475,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         window_size
             The length of the window. Can be a dynamic temporal
             size indicated by a timedelta or the following string language:
@@ -6649,7 +6656,9 @@ class Expr:
             The number of values in the window that should be non-null before computing
             a result.
         by
-            This column must of dtype `{Date, Datetime}`
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         closed : {'left', 'right', 'both', 'none'}
             Define which sides of the temporal interval are closed (inclusive),
             defaults to `'right'`.
@@ -6774,7 +6783,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         window_size
             The length of the window. Can be a dynamic temporal
             size indicated by a timedelta or the following string language:
@@ -6931,7 +6942,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         window_size
             The length of the window. Can be a dynamic temporal
             size indicated by a timedelta or the following string language:
@@ -7087,7 +7100,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         window_size
             The length of the window. Can be a dynamic temporal
             size indicated by a timedelta or the following string language:
@@ -7213,7 +7228,9 @@ class Expr:
         Parameters
         ----------
         by
-            This column must be of dtype Datetime or Date.
+            Should be ``DateTime``, ``Date``, ``UInt64``, ``UInt32``, ``Int64``,
+            or ``Int32`` data type (note that the integral ones require using `'i'`
+            in `window size`).
         quantile
             Quantile between 0.0 and 1.0.
         interpolation : {'nearest', 'higher', 'lower', 'midpoint', 'linear'}
@@ -10527,15 +10544,96 @@ class Expr:
         return self._from_pyexpr(self._pyexpr.bitwise_trailing_zeros())
 
     def bitwise_and(self) -> Expr:
-        """Perform an aggregation of bitwise ANDs."""
+        """Perform an aggregation of bitwise ANDs.
+
+        Examples
+        --------
+        >>> df = pl.DataFrame({"n": [-1, 0, 1]})
+        >>> df.select(pl.col("n").bitwise_and())
+        shape: (1, 1)
+        ┌─────┐
+        │ n   │
+        │ --- │
+        │ i64 │
+        ╞═════╡
+        │ 0   │
+        └─────┘
+        >>> df = pl.DataFrame(
+        ...     {"grouper": ["a", "a", "a", "b", "b"], "n": [-1, 0, 1, -1, 1]}
+        ... )
+        >>> df.group_by("grouper", maintain_order=True).agg(pl.col("n").bitwise_and())
+        shape: (2, 2)
+        ┌─────────┬─────┐
+        │ grouper ┆ n   │
+        │ ---     ┆ --- │
+        │ str     ┆ i64 │
+        ╞═════════╪═════╡
+        │ a       ┆ 0   │
+        │ b       ┆ 1   │
+        └─────────┴─────┘
+        """
         return self._from_pyexpr(self._pyexpr.bitwise_and())
 
     def bitwise_or(self) -> Expr:
-        """Perform an aggregation of bitwise ORs."""
+        """Perform an aggregation of bitwise ORs.
+
+        Examples
+        --------
+        >>> df = pl.DataFrame({"n": [-1, 0, 1]})
+        >>> df.select(pl.col("n").bitwise_or())
+        shape: (1, 1)
+        ┌─────┐
+        │ n   │
+        │ --- │
+        │ i64 │
+        ╞═════╡
+        │ -1  │
+        └─────┘
+        >>> df = pl.DataFrame(
+        ...     {"grouper": ["a", "a", "a", "b", "b"], "n": [-1, 0, 1, -1, 1]}
+        ... )
+        >>> df.group_by("grouper", maintain_order=True).agg(pl.col("n").bitwise_or())
+        shape: (2, 2)
+        ┌─────────┬─────┐
+        │ grouper ┆ n   │
+        │ ---     ┆ --- │
+        │ str     ┆ i64 │
+        ╞═════════╪═════╡
+        │ a       ┆ -1  │
+        │ b       ┆ -1  │
+        └─────────┴─────┘
+        """
         return self._from_pyexpr(self._pyexpr.bitwise_or())
 
     def bitwise_xor(self) -> Expr:
-        """Perform an aggregation of bitwise XORs."""
+        """Perform an aggregation of bitwise XORs.
+
+        Examples
+        --------
+        >>> df = pl.DataFrame({"n": [-1, 0, 1]})
+        >>> df.select(pl.col("n").bitwise_xor())
+        shape: (1, 1)
+        ┌─────┐
+        │ n   │
+        │ --- │
+        │ i64 │
+        ╞═════╡
+        │ -2  │
+        └─────┘
+        >>> df = pl.DataFrame(
+        ...     {"grouper": ["a", "a", "a", "b", "b"], "n": [-1, 0, 1, -1, 1]}
+        ... )
+        >>> df.group_by("grouper", maintain_order=True).agg(pl.col("n").bitwise_xor())
+        shape: (2, 2)
+        ┌─────────┬─────┐
+        │ grouper ┆ n   │
+        │ ---     ┆ --- │
+        │ str     ┆ i64 │
+        ╞═════════╪═════╡
+        │ a       ┆ -2  │
+        │ b       ┆ -2  │
+        └─────────┴─────┘
+        """
         return self._from_pyexpr(self._pyexpr.bitwise_xor())
 
     @deprecate_function(

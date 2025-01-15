@@ -7,8 +7,12 @@ use crate::datatypes::{
 use crate::io::ipc::endianness::is_native_little_endian;
 
 /// Converts a [ArrowSchema] and [IpcField]s to a flatbuffers-encoded [arrow_format::ipc::Message].
-pub fn schema_to_bytes(schema: &ArrowSchema, ipc_fields: &[IpcField]) -> Vec<u8> {
-    let schema = serialize_schema(schema, ipc_fields);
+pub fn schema_to_bytes(
+    schema: &ArrowSchema,
+    ipc_fields: &[IpcField],
+    custom_metadata: Option<&Metadata>,
+) -> Vec<u8> {
+    let schema = serialize_schema(schema, ipc_fields, custom_metadata);
 
     let message = arrow_format::ipc::Message {
         version: arrow_format::ipc::MetadataVersion::V5,
@@ -24,6 +28,7 @@ pub fn schema_to_bytes(schema: &ArrowSchema, ipc_fields: &[IpcField]) -> Vec<u8>
 pub fn serialize_schema(
     schema: &ArrowSchema,
     ipc_fields: &[IpcField],
+    custom_schema_metadata: Option<&Metadata>,
 ) -> arrow_format::ipc::Schema {
     let endianness = if is_native_little_endian() {
         arrow_format::ipc::Endianness::Little
@@ -37,7 +42,13 @@ pub fn serialize_schema(
         .map(|(field, ipc_field)| serialize_field(field, ipc_field))
         .collect::<Vec<_>>();
 
-    let custom_metadata = None;
+    let custom_metadata = custom_schema_metadata.and_then(|custom_meta| {
+        let as_kv = custom_meta
+            .iter()
+            .map(|(key, val)| key_value(key.clone().into_string(), val.clone().into_string()))
+            .collect::<Vec<_>>();
+        (!as_kv.is_empty()).then_some(as_kv)
+    });
 
     arrow_format::ipc::Schema {
         endianness,
@@ -109,7 +120,9 @@ pub(crate) fn serialize_field(field: &Field, ipc_field: &IpcField) -> arrow_form
         None
     };
 
-    write_metadata(&field.metadata, &mut kv_vec);
+    if let Some(metadata) = &field.metadata {
+        write_metadata(metadata, &mut kv_vec);
+    }
 
     let custom_metadata = if !kv_vec.is_empty() {
         Some(kv_vec)
@@ -172,6 +185,10 @@ fn serialize_type(dtype: &ArrowDataType) -> arrow_format::ipc::Type {
         })),
         Int64 => ipc::Type::Int(Box::new(ipc::Int {
             bit_width: 64,
+            is_signed: true,
+        })),
+        Int128 => ipc::Type::Int(Box::new(ipc::Int {
+            bit_width: 128,
             is_signed: true,
         })),
         Float16 => ipc::Type::FloatingPoint(Box::new(ipc::FloatingPoint {
@@ -268,6 +285,7 @@ fn serialize_children(
         | UInt16
         | UInt32
         | UInt64
+        | Int128
         | Float16
         | Float32
         | Float64
@@ -309,7 +327,7 @@ pub(crate) fn serialize_dictionary(
 ) -> arrow_format::ipc::DictionaryEncoding {
     use IntegerType::*;
     let is_signed = match index_type {
-        Int8 | Int16 | Int32 | Int64 => true,
+        Int8 | Int16 | Int32 | Int64 | Int128 => true,
         UInt8 | UInt16 | UInt32 | UInt64 => false,
     };
 
@@ -318,6 +336,7 @@ pub(crate) fn serialize_dictionary(
         Int16 | UInt16 => 16,
         Int32 | UInt32 => 32,
         Int64 | UInt64 => 64,
+        Int128 => 128,
     };
 
     let index_type = arrow_format::ipc::Int {

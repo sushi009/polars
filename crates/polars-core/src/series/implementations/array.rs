@@ -1,7 +1,9 @@
 use std::any::Any;
 use std::borrow::Cow;
 
-use super::{private, MetadataFlags};
+use self::compare_inner::{TotalEqInner, TotalOrdInner};
+use self::sort::arg_sort_row_fmt;
+use super::{private, StatisticsFlags};
 use crate::chunked_array::cast::CastOptions;
 use crate::chunked_array::comparison::*;
 use crate::chunked_array::AsSinglePtr;
@@ -21,11 +23,11 @@ impl private::PrivateSeries for SeriesWrap<ArrayChunked> {
         self.0.ref_field().dtype()
     }
 
-    fn _get_flags(&self) -> MetadataFlags {
+    fn _get_flags(&self) -> StatisticsFlags {
         self.0.get_flags()
     }
 
-    fn _set_flags(&mut self, flags: MetadataFlags) {
+    fn _set_flags(&mut self, flags: StatisticsFlags) {
         self.0.set_flags(flags)
     }
 
@@ -65,6 +67,13 @@ impl private::PrivateSeries for SeriesWrap<ArrayChunked> {
     fn remainder(&self, rhs: &Series) -> PolarsResult<Series> {
         self.0.remainder(rhs)
     }
+
+    fn into_total_eq_inner<'a>(&'a self) -> Box<dyn TotalEqInner + 'a> {
+        invalid_operation_panic!(into_total_eq_inner, self)
+    }
+    fn into_total_ord_inner<'a>(&'a self) -> Box<dyn TotalOrdInner + 'a> {
+        invalid_operation_panic!(into_total_ord_inner, self)
+    }
 }
 
 impl SeriesTrait for SeriesWrap<ArrayChunked> {
@@ -87,6 +96,23 @@ impl SeriesTrait for SeriesWrap<ArrayChunked> {
     }
     fn shrink_to_fit(&mut self) {
         self.0.shrink_to_fit()
+    }
+
+    fn arg_sort(&self, options: SortOptions) -> IdxCa {
+        let slf = (*self).clone();
+        let slf = slf.into_column();
+        arg_sort_row_fmt(
+            &[slf],
+            options.descending,
+            options.nulls_last,
+            options.multithreaded,
+        )
+        .unwrap()
+    }
+
+    fn sort_with(&self, options: SortOptions) -> PolarsResult<Series> {
+        let idxs = self.arg_sort(options);
+        Ok(unsafe { self.take_unchecked(&idxs) })
     }
 
     fn slice(&self, offset: i64, length: usize) -> Series {
@@ -143,10 +169,6 @@ impl SeriesTrait for SeriesWrap<ArrayChunked> {
 
     fn cast(&self, dtype: &DataType, options: CastOptions) -> PolarsResult<Series> {
         self.0.cast_with_options(dtype, options)
-    }
-
-    fn get(&self, index: usize) -> PolarsResult<AnyValue> {
-        self.0.get_any_value(index)
     }
 
     #[inline]

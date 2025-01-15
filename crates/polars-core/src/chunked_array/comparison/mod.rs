@@ -652,12 +652,15 @@ where
 {
     match (lhs.len(), rhs.len()) {
         (_, 1) => {
-            let right = rhs.chunks()[0]
+            let right = rhs
+                .downcast_iter()
+                .find(|x| !x.is_empty())
+                .unwrap()
                 .as_any()
                 .downcast_ref::<ListArray<i64>>()
                 .unwrap();
 
-            if !right.validity().map_or(true, |v| v.get(0).unwrap()) {
+            if !right.validity().is_none_or(|v| v.get(0).unwrap()) {
                 if missing {
                     if is_ne {
                         return lhs.is_not_null();
@@ -681,12 +684,15 @@ where
             }
         },
         (1, _) => {
-            let left = lhs.chunks()[0]
+            let left = lhs
+                .downcast_iter()
+                .find(|x| !x.is_empty())
+                .unwrap()
                 .as_any()
                 .downcast_ref::<ListArray<i64>>()
                 .unwrap();
 
-            if !left.validity().map_or(true, |v| v.get(0).unwrap()) {
+            if !left.validity().is_none_or(|v| v.get(0).unwrap()) {
                 if missing {
                     if is_ne {
                         return rhs.is_not_null();
@@ -898,12 +904,15 @@ where
 {
     match (lhs.len(), rhs.len()) {
         (_, 1) => {
-            let right = rhs.chunks()[0]
+            let right = rhs
+                .downcast_iter()
+                .find(|x| !x.is_empty())
+                .unwrap()
                 .as_any()
                 .downcast_ref::<FixedSizeListArray>()
                 .unwrap();
 
-            if !right.validity().map_or(true, |v| v.get(0).unwrap()) {
+            if !right.validity().is_none_or(|v| v.get(0).unwrap()) {
                 if missing {
                     if is_ne {
                         return lhs.is_not_null();
@@ -922,12 +931,15 @@ where
             }
         },
         (1, _) => {
-            let left = lhs.chunks()[0]
+            let left = lhs
+                .downcast_iter()
+                .find(|x| !x.is_empty())
+                .unwrap()
                 .as_any()
                 .downcast_ref::<FixedSizeListArray>()
                 .unwrap();
 
-            if !left.validity().map_or(true, |v| v.get(0).unwrap()) {
+            if !left.validity().is_none_or(|v| v.get(0).unwrap()) {
                 if missing {
                     if is_ne {
                         return rhs.is_not_null();

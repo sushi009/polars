@@ -45,11 +45,11 @@ impl serde::Serialize for PythonFunction {
         S: serde::Serializer,
     {
         use serde::ser::Error;
-        serializer.serialize_bytes(
-            self.try_serialize_to_bytes()
-                .map_err(|e| S::Error::custom(e.to_string()))?
-                .as_slice(),
-        )
+        let bytes = self
+            .try_serialize_to_bytes()
+            .map_err(|e| S::Error::custom(e.to_string()))?;
+
+        Vec::<u8>::serialize(&bytes, serializer)
     }
 }
 
@@ -61,7 +61,9 @@ impl<'a> serde::Deserialize<'a> for PythonFunction {
     {
         use serde::de::Error;
         let bytes = Vec::<u8>::deserialize(deserializer)?;
-        Self::try_deserialize_bytes(bytes.as_slice()).map_err(|e| D::Error::custom(e.to_string()))
+        let v = Self::try_deserialize_bytes(bytes.as_slice())
+            .map_err(|e| D::Error::custom(e.to_string()));
+        v
     }
 }
 
@@ -78,7 +80,7 @@ impl TrySerializeToBytes for PythonFunction {
 
 pub fn serialize_pyobject_with_cloudpickle_fallback(py_object: &PyObject) -> PolarsResult<Vec<u8>> {
     Python::with_gil(|py| {
-        let pickle = PyModule::import_bound(py, "pickle")
+        let pickle = PyModule::import(py, "pickle")
             .expect("unable to import 'pickle'")
             .getattr("dumps")
             .unwrap();
@@ -88,7 +90,7 @@ pub fn serialize_pyobject_with_cloudpickle_fallback(py_object: &PyObject) -> Pol
         let (dumped, used_cloudpickle) = if let Ok(v) = dumped {
             (v, false)
         } else {
-            let cloudpickle = PyModule::import_bound(py, "cloudpickle")
+            let cloudpickle = PyModule::import(py, "cloudpickle")
                 .map_err(from_pyerr)?
                 .getattr("dumps")
                 .unwrap();
@@ -115,11 +117,11 @@ pub fn deserialize_pyobject_bytes_maybe_cloudpickle<T: for<'a> From<PyObject>>(
     let bytes = rem;
 
     Python::with_gil(|py| {
-        let pickle = PyModule::import_bound(py, "pickle")
+        let pickle = PyModule::import(py, "pickle")
             .expect("unable to import 'pickle'")
             .getattr("loads")
             .unwrap();
-        let arg = (PyBytes::new_bound(py, bytes),);
+        let arg = (PyBytes::new(py, bytes),);
         let pyany_bound = pickle.call1(arg).map_err(from_pyerr)?;
         Ok(PyObject::from(pyany_bound).into())
     })
@@ -213,7 +215,7 @@ mod serde_wrap {
 /// Get the [minor, micro] Python3 version from the `sys` module.
 fn get_python3_version() -> [u8; 2] {
     Python::with_gil(|py| {
-        let version_info = PyModule::import_bound(py, "sys")
+        let version_info = PyModule::import(py, "sys")
             .unwrap()
             .getattr("version_info")
             .unwrap();

@@ -17,10 +17,10 @@ macro_rules! impl_dyn_series {
                 self.0.ref_field().dtype()
             }
 
-            fn _set_flags(&mut self, flags: MetadataFlags) {
+            fn _set_flags(&mut self, flags: StatisticsFlags) {
                 self.0.set_flags(flags)
             }
-            fn _get_flags(&self) -> MetadataFlags {
+            fn _get_flags(&self) -> StatisticsFlags {
                 self.0.get_flags()
             }
             unsafe fn equal_element(
@@ -148,14 +148,6 @@ macro_rules! impl_dyn_series {
                 ChunkRollApply::rolling_map(&self.0, _f, _options).map(|ca| ca.into_series())
             }
 
-            fn get_metadata(&self) -> Option<RwLockReadGuard<dyn MetadataTrait>> {
-                self.0.metadata_dyn()
-            }
-
-            fn boxed_metadata<'a>(&'a self) -> Option<Box<dyn MetadataTrait + 'a>> {
-                Some(self.0.boxed_metadata_dyn())
-            }
-
             fn rename(&mut self, name: PlSmallStr) {
                 self.0.rename(name);
             }
@@ -252,10 +244,6 @@ macro_rules! impl_dyn_series {
 
             fn cast(&self, dtype: &DataType, cast_options: CastOptions) -> PolarsResult<Series> {
                 self.0.cast_with_options(dtype, cast_options)
-            }
-
-            fn get(&self, index: usize) -> PolarsResult<AnyValue> {
-                self.0.get_any_value(index)
             }
 
             #[inline]

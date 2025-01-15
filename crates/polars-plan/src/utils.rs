@@ -2,7 +2,6 @@ use std::fmt::Formatter;
 use std::iter::FlatMap;
 
 use polars_core::prelude::*;
-use polars_utils::idx_vec::UnitVec;
 
 use crate::constants::get_len_name;
 use crate::prelude::*;
@@ -38,32 +37,6 @@ pub(crate) fn fmt_column_delimited<S: AsRef<str>>(
         }
     }
     write!(f, "{container_end}")
-}
-
-pub trait PushNode {
-    fn push_node(&mut self, value: Node);
-
-    fn extend_from_slice(&mut self, values: &[Node]);
-}
-
-impl PushNode for Vec<Node> {
-    fn push_node(&mut self, value: Node) {
-        self.push(value)
-    }
-
-    fn extend_from_slice(&mut self, values: &[Node]) {
-        Vec::extend_from_slice(self, values)
-    }
-}
-
-impl PushNode for UnitVec<Node> {
-    fn push_node(&mut self, value: Node) {
-        self.push(value)
-    }
-
-    fn extend_from_slice(&mut self, values: &[Node]) {
-        UnitVec::extend(self, values.iter().copied())
-    }
 }
 
 pub(crate) fn is_scan(plan: &IR) -> bool {
@@ -289,7 +262,12 @@ pub fn expressions_to_schema(
 ) -> PolarsResult<Schema> {
     let mut expr_arena = Arena::with_capacity(4 * expr.len());
     expr.iter()
-        .map(|expr| expr.to_field_amortized(schema, ctxt, &mut expr_arena))
+        .map(|expr| {
+            let mut field = expr.to_field_amortized(schema, ctxt, &mut expr_arena)?;
+
+            field.dtype = field.dtype.materialize_unknown(true)?;
+            Ok(field)
+        })
         .collect()
 }
 
@@ -357,14 +335,13 @@ pub(crate) fn expr_irs_to_schema<I: IntoIterator<Item = K>, K: AsRef<ExprIR>>(
     expr.into_iter()
         .map(|e| {
             let e = e.as_ref();
-            let mut field = arena
-                .get(e.node())
-                .to_field(schema, ctxt, arena)
-                .expect("should be resolved");
+            let mut field = e.field(schema, ctxt, arena).expect("should be resolved");
 
+            // TODO! (can this be removed?)
             if let Some(name) = e.get_alias() {
                 field.name = name.clone()
             }
+            field.dtype = field.dtype.materialize_unknown(true).unwrap();
             field
         })
         .collect()

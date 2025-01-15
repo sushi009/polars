@@ -84,6 +84,10 @@ unsafe impl DictionaryKey for i64 {
     const KEY_TYPE: IntegerType = IntegerType::Int64;
     const MAX_USIZE_VALUE: usize = i64::MAX as usize;
 }
+unsafe impl DictionaryKey for i128 {
+    const KEY_TYPE: IntegerType = IntegerType::Int128;
+    const MAX_USIZE_VALUE: usize = i128::MAX as usize;
+}
 unsafe impl DictionaryKey for u8 {
     const KEY_TYPE: IntegerType = IntegerType::UInt8;
     const MAX_USIZE_VALUE: usize = u8::MAX as usize;
@@ -403,6 +407,10 @@ impl<K: DictionaryKey> DictionaryArray<K> {
                 polars_bail!(ComputeError: "Dictionaries must be initialized with DataType::Dictionary")
             },
         })
+    }
+
+    pub fn take(self) -> (ArrowDataType, PrimitiveArray<K>, Box<dyn Array>) {
+        (self.dtype, self.keys, self.values)
     }
 }
 

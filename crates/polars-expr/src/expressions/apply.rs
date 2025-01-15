@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use polars_core::chunked_array::builder::get_list_builder;
+use polars_core::chunked_array::from_iterator_par::try_list_from_par_iter;
 use polars_core::prelude::*;
 use polars_core::POOL;
 #[cfg(feature = "parquet")]
@@ -15,6 +16,7 @@ use crate::expressions::{
     AggState, AggregationContext, PartitionedAggregation, PhysicalExpr, UpdateGroups,
 };
 
+#[derive(Clone)]
 pub struct ApplyExpr {
     inputs: Vec<Arc<dyn PhysicalExpr>>,
     function: SpecialEq<Arc<dyn ColumnsUdf>>,
@@ -181,7 +183,7 @@ impl ApplyExpr {
 
                 out
             } else {
-                POOL.install(|| iter.collect::<PolarsResult<_>>())?
+                POOL.install(|| try_list_from_par_iter(iter, PlSmallStr::EMPTY))?
             }
         } else {
             agg.list()
@@ -425,6 +427,50 @@ impl PhysicalExpr for ApplyExpr {
             }
         }
     }
+
+    fn collect_live_columns(&self, lv: &mut PlIndexSet<PlSmallStr>) {
+        for i in &self.inputs {
+            i.collect_live_columns(lv);
+        }
+    }
+    fn replace_elementwise_const_columns(
+        &self,
+        const_columns: &PlHashMap<PlSmallStr, AnyValue<'static>>,
+    ) -> Option<Arc<dyn PhysicalExpr>> {
+        if self.collect_groups == ApplyOptions::ElementWise {
+            let mut new_inputs = Vec::new();
+            for i in 0..self.inputs.len() {
+                match self.inputs[i].replace_elementwise_const_columns(const_columns) {
+                    None => continue,
+                    Some(new) => {
+                        new_inputs.reserve(self.inputs.len());
+                        new_inputs.extend(self.inputs[..i].iter().cloned());
+                        new_inputs.push(new);
+                        break;
+                    },
+                }
+            }
+
+            // Only copy inputs if it is actually needed
+            if new_inputs.is_empty() {
+                return None;
+            }
+
+            new_inputs.extend(self.inputs[new_inputs.len()..].iter().map(|i| {
+                match i.replace_elementwise_const_columns(const_columns) {
+                    None => i.clone(),
+                    Some(new) => new,
+                }
+            }));
+
+            let mut slf = self.clone();
+            slf.inputs = new_inputs;
+            return Some(Arc::new(slf));
+        }
+
+        None
+    }
+
     fn to_field(&self, input_schema: &Schema) -> PolarsResult<Field> {
         self.expr.to_field(input_schema, Context::Default)
     }
@@ -564,7 +610,7 @@ impl ApplyExpr {
                         Some(null_count)
                             if stats
                                 .num_rows()
-                                .map_or(false, |num_rows| num_rows == null_count) =>
+                                .is_some_and(|num_rows| num_rows == null_count) =>
                         {
                             Ok(false)
                         },

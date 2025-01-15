@@ -80,7 +80,11 @@ impl ArrowSchema {
             None
         };
 
-        let metadata = &field.metadata;
+        let metadata = field
+            .metadata
+            .as_ref()
+            .map(|inner| (**inner).clone())
+            .unwrap_or_default();
 
         let metadata = if let ArrowDataType::Extension(name, _, extension_metadata) = field.dtype()
         {
@@ -102,7 +106,7 @@ impl ArrowSchema {
 
             Some(metadata_to_bytes(&metadata))
         } else if !metadata.is_empty() {
-            Some(metadata_to_bytes(metadata))
+            Some(metadata_to_bytes(&metadata))
         } else {
             None
         };
@@ -425,6 +429,8 @@ fn to_format(dtype: &ArrowDataType) -> String {
         ArrowDataType::UInt32 => "I".to_string(),
         ArrowDataType::Int64 => "l".to_string(),
         ArrowDataType::UInt64 => "L".to_string(),
+        // Doesn't exist in arrow, '_pl' prefixed is Polars specific
+        ArrowDataType::Int128 => "_pli128".to_string(),
         ArrowDataType::Float16 => "e".to_string(),
         ArrowDataType::Float32 => "f".to_string(),
         ArrowDataType::Float64 => "g".to_string(),

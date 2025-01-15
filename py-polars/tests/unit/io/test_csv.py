@@ -259,12 +259,12 @@ def test_csv_missing_utf8_is_empty_string() -> None:
 
 def test_csv_int_types() -> None:
     f = io.StringIO(
-        "u8,i8,u16,i16,u32,i32,u64,i64\n"
-        "0,0,0,0,0,0,0,0\n"
-        "0,-128,0,-32768,0,-2147483648,0,-9223372036854775808\n"
-        "255,127,65535,32767,4294967295,2147483647,18446744073709551615,9223372036854775807\n"
-        "01,01,01,01,01,01,01,01\n"
-        "01,-01,01,-01,01,-01,01,-01\n"
+        "u8,i8,u16,i16,u32,i32,u64,i64,i128\n"
+        "0,0,0,0,0,0,0,0,0\n"
+        "0,-128,0,-32768,0,-2147483648,0,-9223372036854775808,-170141183460469231731687303715884105728\n"
+        "255,127,65535,32767,4294967295,2147483647,18446744073709551615,9223372036854775807,170141183460469231731687303715884105727\n"
+        "01,01,01,01,01,01,01,01,01\n"
+        "01,-01,01,-01,01,-01,01,-01,01\n"
     )
     df = pl.read_csv(
         f,
@@ -277,6 +277,7 @@ def test_csv_int_types() -> None:
             "i32": pl.Int32,
             "u64": pl.UInt64,
             "i64": pl.Int64,
+            "i128": pl.Int128,
         },
     )
 
@@ -294,6 +295,16 @@ def test_csv_int_types() -> None:
                 "i64": pl.Series(
                     [0, -9223372036854775808, 9223372036854775807, 1, -1],
                     dtype=pl.Int64,
+                ),
+                "i128": pl.Series(
+                    [
+                        0,
+                        -170141183460469231731687303715884105728,
+                        170141183460469231731687303715884105727,
+                        1,
+                        1,
+                    ],
+                    dtype=pl.Int128,
                 ),
             }
         ),
@@ -2369,3 +2380,82 @@ def test_batched_csv_schema_overrides(io_files_path: Path) -> None:
     b = res[0]
     assert b["calories"].dtype == pl.String
     assert b.width == 4
+
+
+def test_csv_ragged_lines_20062() -> None:
+    buf = io.StringIO("""A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V
+,"B",,,,,,,,,A,,,,,,,,
+a,a,a,a,a,a,a,a,a,a,a,a,a,a,a,a,a,a,a,0.0,1.0,2.0,3.0
+""")
+    assert pl.read_csv(buf, truncate_ragged_lines=True).to_dict(as_series=False) == {
+        "A": [None, "a"],
+        "B": ["B", "a"],
+        "C": [None, "a"],
+        "D": [None, "a"],
+        "E": [None, "a"],
+        "F": [None, "a"],
+        "G": [None, "a"],
+        "H": [None, "a"],
+        "I": [None, "a"],
+        "J": [None, "a"],
+        "K": ["A", "a"],
+        "L": [None, "a"],
+        "M": [None, "a"],
+        "N": [None, "a"],
+        "O": [None, "a"],
+        "P": [None, "a"],
+        "Q": [None, "a"],
+        "R": [None, "a"],
+        "S": [None, "a"],
+        "T": [None, 0.0],
+        "U": [None, 1.0],
+        "V": [None, 2.0],
+    }
+
+
+def test_csv_skip_lines() -> None:
+    fh = io.BytesIO()
+    fh.write(b'Header line "1" -> quote count 2\n')
+    fh.write(b'Header line "2"" -> quote count 3\n')
+    fh.write(b'Header line "3" -> quote count 2 => Total 7 quotes ERROR\n')
+    fh.write(b"column_01, column_02, column_03\n")
+    fh.write(b"123.12, 21, 99.9\n")
+    fh.write(b"65.84, 75, 64.7\n")
+    fh.seek(0)
+
+    df = pl.read_csv(fh, has_header=True, skip_lines=3)
+    assert df.to_dict(as_series=False) == {
+        "column_01": [123.12, 65.84],
+        " column_02": [" 21", " 75"],
+        " column_03": [" 99.9", " 64.7"],
+    }
+
+    fh.seek(0)
+    assert_frame_equal(pl.scan_csv(fh, has_header=True, skip_lines=3).collect(), df)
+
+
+def test_csv_invalid_quoted_comment_line() -> None:
+    # Comment quotes should be ignored.
+    assert pl.read_csv(
+        b'#"Comment\nColA\tColB\n1\t2', separator="\t", comment_prefix="#"
+    ).to_dict(as_series=False) == {"ColA": [1], "ColB": [2]}
+
+
+def test_csv_compressed_new_columns_19916() -> None:
+    n_rows = 100
+
+    df = pl.DataFrame(
+        {
+            "a": range(n_rows),
+            "b": range(n_rows),
+            "c": range(n_rows),
+            "d": range(n_rows),
+            "e": range(n_rows),
+            "f": range(n_rows),
+        }
+    )
+
+    b = zstandard.compress(df.write_csv(include_header=False).encode())
+
+    q = pl.scan_csv(b, has_header=False, new_columns=["a", "b", "c", "d", "e", "f"])
+    assert_frame_equal(q.collect(), df)

@@ -70,13 +70,17 @@ pub(super) fn par_sorted_merge_left(
         DataType::Int64 => {
             par_sorted_merge_left_impl(s_left.i64().unwrap(), s_right.i64().unwrap())
         },
+        #[cfg(feature = "dtype-i128")]
+        DataType::Int128 => {
+            par_sorted_merge_left_impl(s_left.i128().unwrap(), s_right.i128().unwrap())
+        },
         DataType::Float32 => {
             par_sorted_merge_left_impl(s_left.f32().unwrap(), s_right.f32().unwrap())
         },
         DataType::Float64 => {
             par_sorted_merge_left_impl(s_left.f64().unwrap(), s_right.f64().unwrap())
         },
-        _ => unreachable!(),
+        dt => panic!("{:?}", dt),
     }
 }
 #[cfg(feature = "performant")]
@@ -142,6 +146,10 @@ pub(super) fn par_sorted_merge_inner_no_nulls(
         DataType::Int64 => {
             par_sorted_merge_inner_impl(s_left.i64().unwrap(), s_right.i64().unwrap())
         },
+        #[cfg(feature = "dtype-i128")]
+        DataType::Int128 => {
+            par_sorted_merge_inner_impl(s_left.i128().unwrap(), s_right.i128().unwrap())
+        },
         DataType::Float32 => {
             par_sorted_merge_inner_impl(s_left.f32().unwrap(), s_right.f32().unwrap())
         },
@@ -152,8 +160,10 @@ pub(super) fn par_sorted_merge_inner_no_nulls(
     }
 }
 
-#[cfg(feature = "performant")]
-fn to_left_join_ids(left_idx: Vec<IdxSize>, right_idx: Vec<NullableIdxSize>) -> LeftJoinIds {
+pub(crate) fn to_left_join_ids(
+    left_idx: Vec<IdxSize>,
+    right_idx: Vec<NullableIdxSize>,
+) -> LeftJoinIds {
     #[cfg(feature = "chunked_ids")]
     {
         (Either::Left(left_idx), Either::Left(right_idx))

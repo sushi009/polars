@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use arrow::array::ValueSize;
-use arrow::legacy::kernels::list::{index_is_oob, sublist_get};
+use polars_compute::gather::sublist::list::{index_is_oob, sublist_get};
 use polars_core::chunked_array::builder::get_list_builder;
 #[cfg(feature = "list_gather")]
 use polars_core::export::num::ToPrimitive;
@@ -329,7 +329,7 @@ pub trait ListNameSpaceImpl: AsList {
 
         let ca_validity = ca.rechunk_validity();
 
-        if ca_validity.as_ref().map_or(false, |x| x.set_bits() == 0) {
+        if ca_validity.as_ref().is_some_and(|x| x.set_bits() == 0) {
             return IdxCa::full_null(ca.name().clone(), ca.len());
         }
 
@@ -361,12 +361,10 @@ pub trait ListNameSpaceImpl: AsList {
             .downcast_iter()
             .map(|arr| sublist_get(arr, idx))
             .collect::<Vec<_>>();
+
+        let s = Series::try_from((ca.name().clone(), chunks)).unwrap();
         // SAFETY: every element in list has dtype equal to its inner type
-        unsafe {
-            Series::try_from((ca.name().clone(), chunks))
-                .unwrap()
-                .cast_unchecked(ca.inner_dtype())
-        }
+        unsafe { s.from_physical_unchecked(ca.inner_dtype()) }
     }
 
     #[cfg(feature = "list_gather")]

@@ -6,6 +6,7 @@ use polars_io::cloud::CloudOptions;
 use polars_io::path_utils::is_cloud_url;
 use polars_io::predicates::apply_predicate;
 use polars_utils::mmap::MemSlice;
+use polars_utils::open_file;
 use rayon::prelude::*;
 
 use super::*;
@@ -77,14 +78,14 @@ impl IpcExec {
             let memslice = match source {
                 ScanSourceRef::Path(path) => {
                     let file = match idx_to_cached_file(index) {
-                        None => std::fs::File::open(path)?,
+                        None => open_file(path)?,
                         Some(f) => f?,
                     };
 
                     MemSlice::from_file(&file)?
                 },
                 ScanSourceRef::File(file) => MemSlice::from_file(file)?,
-                ScanSourceRef::Buffer(buff) => MemSlice::from_bytes(buff.clone()),
+                ScanSourceRef::Buffer(buff) => buff.clone(),
             };
 
             IpcReader::new(std::io::Cursor::new(memslice))

@@ -31,32 +31,22 @@ use crate::prelude::*;
 #[derive(Clone, IntoStaticStr)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum FunctionIR {
+    RowIndex {
+        name: PlSmallStr,
+        offset: Option<IdxSize>,
+        // Might be cached.
+        #[cfg_attr(feature = "ir_serde", serde(skip))]
+        schema: CachedSchema,
+    },
     #[cfg(feature = "python")]
     OpaquePython(OpaquePythonUdf),
-    #[cfg_attr(feature = "ir_serde", serde(skip))]
-    Opaque {
-        function: Arc<dyn DataFrameUdf>,
-        schema: Option<Arc<dyn UdfSchema>>,
-        ///  allow predicate pushdown optimizations
-        predicate_pd: bool,
-        ///  allow projection pushdown optimizations
-        projection_pd: bool,
-        streamable: bool,
-        // used for formatting
-        fmt_str: PlSmallStr,
-    },
+
     FastCount {
         sources: ScanSources,
         scan_type: FileScan,
         alias: Option<PlSmallStr>,
     },
-    /// Streaming engine pipeline
-    #[cfg_attr(feature = "ir_serde", serde(skip))]
-    Pipeline {
-        function: Arc<Mutex<dyn DataFrameUdfMut>>,
-        schema: SchemaRef,
-        original: Option<Arc<IRPlan>>,
-    },
+
     Unnest {
         columns: Arc<[PlSmallStr]>,
     },
@@ -89,12 +79,24 @@ pub enum FunctionIR {
         #[cfg_attr(feature = "ir_serde", serde(skip))]
         schema: CachedSchema,
     },
-    RowIndex {
-        name: PlSmallStr,
-        // Might be cached.
-        #[cfg_attr(feature = "ir_serde", serde(skip))]
-        schema: CachedSchema,
-        offset: Option<IdxSize>,
+    #[cfg_attr(feature = "ir_serde", serde(skip))]
+    Opaque {
+        function: Arc<dyn DataFrameUdf>,
+        schema: Option<Arc<dyn UdfSchema>>,
+        ///  allow predicate pushdown optimizations
+        predicate_pd: bool,
+        ///  allow projection pushdown optimizations
+        projection_pd: bool,
+        streamable: bool,
+        // used for formatting
+        fmt_str: PlSmallStr,
+    },
+    /// Streaming engine pipeline
+    #[cfg_attr(feature = "ir_serde", serde(skip))]
+    Pipeline {
+        function: Arc<Mutex<dyn DataFrameUdfMut>>,
+        schema: SchemaRef,
+        original: Option<Arc<IRPlan>>,
     },
 }
 
@@ -265,7 +267,7 @@ impl FunctionIR {
                 validate_output,
                 schema,
                 ..
-            }) => python_udf::call_python_udf(function, df, *validate_output, schema.as_deref()),
+            }) => python_udf::call_python_udf(function, df, *validate_output, schema.clone()),
             FastCount {
                 sources,
                 scan_type,

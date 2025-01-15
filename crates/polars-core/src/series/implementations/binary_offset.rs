@@ -15,10 +15,10 @@ impl private::PrivateSeries for SeriesWrap<BinaryOffsetChunked> {
     fn _dtype(&self) -> &DataType {
         self.0.ref_field().dtype()
     }
-    fn _get_flags(&self) -> MetadataFlags {
+    fn _get_flags(&self) -> StatisticsFlags {
         self.0.get_flags()
     }
-    fn _set_flags(&mut self, flags: MetadataFlags) {
+    fn _set_flags(&mut self, flags: StatisticsFlags) {
         self.0.set_flags(flags)
     }
 
@@ -144,10 +144,6 @@ impl SeriesTrait for SeriesWrap<BinaryOffsetChunked> {
 
     fn cast(&self, dtype: &DataType, options: CastOptions) -> PolarsResult<Series> {
         self.0.cast_with_options(dtype, options)
-    }
-
-    fn get(&self, index: usize) -> PolarsResult<AnyValue> {
-        self.0.get_any_value(index)
     }
 
     #[inline]

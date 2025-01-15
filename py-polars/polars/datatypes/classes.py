@@ -319,6 +319,17 @@ class Int64(SignedIntegerType):
     """64-bit signed integer type."""
 
 
+class Int128(SignedIntegerType):
+    """
+    128-bit signed integer type.
+
+    .. warning::
+        This functionality is considered **unstable**.
+        It is a work-in-progress feature and may not always work as expected.
+        It may be changed at any point without it being considered a breaking change.
+    """
+
+
 class UInt8(UnsignedIntegerType):
     """8-bit unsigned integer type."""
 
@@ -622,15 +633,14 @@ class Enum(DataType):
         )
 
         if isclass(categories) and issubclass(categories, enum.Enum):
-            for enum_subclass in (enum.IntFlag, enum.Flag, enum.IntEnum):
+            for enum_subclass in (enum.Flag, enum.IntEnum):
                 if issubclass(categories, enum_subclass):
-                    enum_type_name = enum_subclass.__name__
-                    msg = f"Enum categories must be strings; Python `enum.{enum_type_name}` values are integers"
+                    enum_type_name = categories.__name__
+                    msg = f"Enum categories must be strings; `{enum_type_name}` values are integers"
                     raise TypeError(msg)
 
             enum_values = [
-                (v if isinstance(v, str) else v.value)
-                for v in categories.__members__.values()
+                getattr(v, "value", v) for v in categories.__members__.values()
             ]
             categories = pl.Series(values=enum_values)
         elif not isinstance(categories, pl.Series):

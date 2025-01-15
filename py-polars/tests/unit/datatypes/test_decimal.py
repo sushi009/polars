@@ -162,30 +162,21 @@ def test_decimal_scale_precision_roundtrip(monkeypatch: Any) -> None:
 
 
 def test_string_to_decimal() -> None:
-    s = pl.Series(
-        [
-            "40.12",
-            "3420.13",
-            "120134.19",
-            "3212.98",
-            "12.90",
-            "143.09",
-            "143.9",
-            "-62.44",
-        ]
-    ).str.to_decimal()
+    values = [
+        "40.12",
+        "3420.13",
+        "120134.19",
+        "3212.98",
+        "12.90",
+        "143.09",
+        "143.9",
+        "-62.44",
+    ]
+
+    s = pl.Series(values).str.to_decimal()
     assert s.dtype == pl.Decimal(scale=2)
 
-    assert s.to_list() == [
-        D("40.12"),
-        D("3420.13"),
-        D("120134.19"),
-        D("3212.98"),
-        D("12.90"),
-        D("143.09"),
-        D("143.90"),
-        D("-62.44"),
-    ]
+    assert s.to_list() == [D(v) for v in values]
 
 
 def test_read_csv_decimal(monkeypatch: Any) -> None:
@@ -195,7 +186,7 @@ def test_read_csv_decimal(monkeypatch: Any) -> None:
 0.01,a"""
 
     df = pl.read_csv(csv.encode(), schema_overrides={"a": pl.Decimal(scale=2)})
-    assert df.dtypes == [pl.Decimal(precision=None, scale=2), pl.String]
+    assert df.dtypes == [pl.Decimal(scale=2), pl.String]
     assert df["a"].to_list() == [
         D("123.12"),
         D("1.10"),
@@ -282,7 +273,7 @@ def test_decimal_series_value_arithmetic() -> None:
     assert out1.dtype == pl.Decimal(precision=None, scale=2)
     assert out2.dtype == pl.Decimal(precision=None, scale=2)
     assert out3.dtype == pl.Decimal(precision=None, scale=4)
-    assert out4.dtype == pl.Decimal(precision=None, scale=6)
+    assert out4.dtype == pl.Decimal(precision=None, scale=8)
     assert out5.dtype == pl.Decimal(precision=None, scale=6)
     assert out6.dtype == pl.Decimal(precision=None, scale=2)
 
@@ -290,9 +281,9 @@ def test_decimal_series_value_arithmetic() -> None:
     assert out2.to_list() == [D("10.1"), D("20.1"), D("110.01")]
     assert out3.to_list() == [D("10.1001"), D("20.1001"), D("110.0101")]
     assert out4.to_list() == [
-        D("0.066666"),
-        D("6.733333"),
-        D("66.673333"),
+        D("0.06666666"),
+        D("6.73333333"),
+        D("66.67333333"),
     ]  # TODO: do we want floor instead of round?
     assert out5.to_list() == [D("0.066666"), D("6.733333"), D("66.673333")]
     assert out6.to_list() == [D("-4.9"), D("5.1"), D("95.01")]
@@ -413,6 +404,11 @@ def test_decimal_sort() -> None:
         "bar": [D("2.1"), D("3.4"), D("4.5")],
         "baz": [1, 1, 2],
     }
+    assert df.sort(["bar", "foo"]).to_dict(as_series=False) == {
+        "foo": [2, 1, 3],
+        "bar": [D("2.1"), D("3.4"), D("4.5")],
+        "baz": [1, 1, 2],
+    }
     assert df.sort(["foo", "bar"]).to_dict(as_series=False) == {
         "foo": [1, 2, 3],
         "bar": [D("3.4"), D("2.1"), D("4.5")],
@@ -456,6 +452,7 @@ def test_decimal_write_parquet_12375() -> None:
 def test_decimal_list_get_13847() -> None:
     df = pl.DataFrame({"a": [[D("1.1"), D("1.2")], [D("2.1")]]})
     out = df.select(pl.col("a").list.get(0))
+    print(out)
     expected = pl.DataFrame({"a": [D("1.1"), D("2.1")]})
     assert_frame_equal(out, expected)
 
@@ -548,3 +545,64 @@ def test_decimal_round() -> None:
         expected_s = pl.Series("a", [round(v, decimals) for v in values], dtype)
 
         assert_series_equal(got_s, expected_s)
+
+
+def test_decimal_arithmetic_schema() -> None:
+    q = pl.LazyFrame({"x": [1.0]}, schema={"x": pl.Decimal(15, 2)})
+
+    q1 = q.select(pl.col.x * pl.col.x)
+    assert q1.collect_schema() == q1.collect().schema
+    q1 = q.select(pl.col.x / pl.col.x)
+    assert q1.collect_schema() == q1.collect().schema
+    q1 = q.select(pl.col.x - pl.col.x)
+    assert q1.collect_schema() == q1.collect().schema
+    q1 = q.select(pl.col.x + pl.col.x)
+    assert q1.collect_schema() == q1.collect().schema
+
+
+def test_decimal_arithmetic_schema_float_20369() -> None:
+    s = pl.Series("x", [1.0], dtype=pl.Decimal(15, 2))
+    assert_series_equal((s - 1.0), pl.Series("x", [0.0], dtype=pl.Decimal(None, 2)))
+    assert_series_equal(
+        (3.0 - s), pl.Series("literal", [2.0], dtype=pl.Decimal(None, 2))
+    )
+    assert_series_equal(
+        (3.0 / s), pl.Series("literal", [3.0], dtype=pl.Decimal(None, 6))
+    )
+    assert_series_equal(
+        (s / 3.0), pl.Series("x", [0.333333], dtype=pl.Decimal(None, 6))
+    )
+
+    assert_series_equal((s + 1.0), pl.Series("x", [2.0], dtype=pl.Decimal(None, 2)))
+    assert_series_equal(
+        (1.0 + s), pl.Series("literal", [2.0], dtype=pl.Decimal(None, 2))
+    )
+    assert_series_equal((s * 1.0), pl.Series("x", [1.0], dtype=pl.Decimal(None, 4)))
+    assert_series_equal(
+        (1.0 * s), pl.Series("literal", [1.0], dtype=pl.Decimal(None, 4))
+    )
+
+
+def test_decimal_horizontal_20482() -> None:
+    b = pl.LazyFrame(
+        {
+            "a": [D("123.000000"), D("234.000000")],
+            "b": [D("123.000000"), D("234.000000")],
+        },
+        schema={
+            "a": pl.Decimal(18, 6),
+            "b": pl.Decimal(18, 6),
+        },
+    )
+
+    assert (
+        b.select(
+            min=pl.min_horizontal(pl.col("a"), pl.col("b")),
+            max=pl.max_horizontal(pl.col("a"), pl.col("b")),
+            sum=pl.sum_horizontal(pl.col("a"), pl.col("b")),
+        ).collect()
+    ).to_dict(as_series=False) == {
+        "min": [D("123.000000"), D("234.000000")],
+        "max": [D("123.000000"), D("234.000000")],
+        "sum": [D("246.000000"), D("468.000000")],
+    }

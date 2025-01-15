@@ -2,6 +2,7 @@ use std::any::Any;
 
 use polars_error::constants::LENGTH_LIMIT_MSG;
 
+use self::compare_inner::TotalOrdInner;
 use crate::prelude::compare_inner::{IntoTotalEqInner, TotalEqInner};
 use crate::prelude::*;
 use crate::series::private::{PrivateSeries, PrivateSeriesNumeric};
@@ -59,7 +60,7 @@ impl PrivateSeries for NullChunked {
     }
 
     #[allow(unused)]
-    fn _set_flags(&mut self, flags: MetadataFlags) {}
+    fn _set_flags(&mut self, flags: StatisticsFlags) {}
 
     fn _dtype(&self) -> &DataType {
         &DataType::Null
@@ -79,6 +80,14 @@ impl PrivateSeries for NullChunked {
 
         Ok(Self::new(self.name().clone(), len).into_series())
     }
+
+    fn into_total_eq_inner<'a>(&'a self) -> Box<dyn TotalEqInner + 'a> {
+        IntoTotalEqInner::into_total_eq_inner(self)
+    }
+    fn into_total_ord_inner<'a>(&'a self) -> Box<dyn TotalOrdInner + 'a> {
+        invalid_operation_panic!(into_total_ord_inner, self)
+    }
+
     fn subtract(&self, _rhs: &Series) -> PolarsResult<Series> {
         null_arithmetic(self, _rhs, "subtract")
     }
@@ -113,8 +122,8 @@ impl PrivateSeries for NullChunked {
         AggList::agg_list(self, groups)
     }
 
-    fn _get_flags(&self) -> MetadataFlags {
-        MetadataFlags::empty()
+    fn _get_flags(&self) -> StatisticsFlags {
+        StatisticsFlags::empty()
     }
 
     fn vec_hash(&self, random_state: PlRandomState, buf: &mut Vec<u64>) -> PolarsResult<()> {
@@ -129,10 +138,6 @@ impl PrivateSeries for NullChunked {
     ) -> PolarsResult<()> {
         VecHash::vec_hash_combine(self, build_hasher, hashes)?;
         Ok(())
-    }
-
-    fn into_total_eq_inner<'a>(&'a self) -> Box<dyn TotalEqInner + 'a> {
-        IntoTotalEqInner::into_total_eq_inner(self)
     }
 }
 
@@ -222,11 +227,6 @@ impl SeriesTrait for NullChunked {
         NullChunked::new(self.name.clone(), length).into_series()
     }
 
-    fn get(&self, index: usize) -> PolarsResult<AnyValue> {
-        polars_ensure!(index < self.len(), oob = index, self.len());
-        Ok(AnyValue::Null)
-    }
-
     unsafe fn get_unchecked(&self, _index: usize) -> AnyValue {
         AnyValue::Null
     }
@@ -261,6 +261,10 @@ impl SeriesTrait for NullChunked {
 
     fn sort_with(&self, _options: SortOptions) -> PolarsResult<Series> {
         Ok(self.clone().into_series())
+    }
+
+    fn arg_sort(&self, _options: SortOptions) -> IdxCa {
+        IdxCa::from_vec(self.name().clone(), (0..self.len() as IdxSize).collect())
     }
 
     fn is_null(&self) -> BooleanChunked {

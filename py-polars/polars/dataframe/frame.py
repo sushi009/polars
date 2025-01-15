@@ -154,6 +154,7 @@ if TYPE_CHECKING:
         JoinStrategy,
         JoinValidation,
         Label,
+        MaintainOrderJoin,
         MultiColSelector,
         MultiIndexSelector,
         OneOrMoreDataTypes,
@@ -177,6 +178,7 @@ if TYPE_CHECKING:
     )
     from polars._utils.various import NoDefault
     from polars.interchange.dataframe import PolarsDataFrame
+    from polars.io.cloud import CredentialProviderFunction
     from polars.ml.torch import PolarsDataset
 
     if sys.version_info >= (3, 10):
@@ -640,6 +642,16 @@ class DataFrame:
           is shorthand for
           `alt.Chart(df).mark_attr(tooltip=True).encode(**kwargs).interactive()`
 
+        For configuration, we suggest reading
+        `Chart Configuration <https://altair-viz.github.io/altair-tutorial/notebooks/08-Configuration.html>`_.
+        For example, you can:
+
+        - Change the width/height/title with
+          ``.properties(width=500, height=350, title="My amazing plot")``.
+        - Change the x-axis label rotation with ``.configure_axisX(labelAngle=30)``.
+        - Change the opacity of the points in your scatter plot with
+          ``.configure_point(opacity=.5)``.
+
         Examples
         --------
         Scatter plot:
@@ -652,6 +664,13 @@ class DataFrame:
         ...     }
         ... )
         >>> df.plot.point(x="length", y="width", color="species")  # doctest: +SKIP
+
+        Set the x-axis title by using ``altair.X``:
+
+        >>> import altair as alt
+        >>> df.plot.point(
+        ...     x=alt.X("length", title="Length"), y="width", color="species"
+        ... )  # doctest: +SKIP
 
         Line plot:
 
@@ -677,6 +696,10 @@ class DataFrame:
         >>> df.plot.bar(
         ...     x="day", y="value", color="day", column="group"
         ... )  # doctest: +SKIP
+
+        Or, to make a stacked version of the plot above:
+
+        >>> df.plot.bar(x="day", y="value", color="group")  # doctest: +SKIP
         """
         if not _ALTAIR_AVAILABLE or parse_version(altair.__version__) < (5, 4, 0):
             msg = "altair>=5.4.0 is required for `.plot`"
@@ -1525,7 +1548,7 @@ class DataFrame:
 
         See Also
         --------
-        row: Get the values of a single row, either by index or by predicate.
+        row : Get the values of a single row, either by index or by predicate.
 
         Notes
         -----
@@ -2613,7 +2636,7 @@ class DataFrame:
         ... )
         >>> bytes = df.serialize()
         >>> bytes  # doctest: +ELLIPSIS
-        b'\xa1gcolumns\x82\xa4dnamecfoohdatatypeeInt64lbit_settings\x00fvalues\x83...'
+        b'x\x01bb@\x80\x15...'
 
         The bytes can later be deserialized back into a DataFrame.
 
@@ -2758,6 +2781,9 @@ class DataFrame:
         float_precision: int | None = ...,
         null_value: str | None = ...,
         quote_style: CsvQuoteStyle | None = ...,
+        storage_options: dict[str, Any] | None = ...,
+        credential_provider: CredentialProviderFunction | Literal["auto"] | None = ...,
+        retries: int = ...,
     ) -> str: ...
 
     @overload
@@ -2778,6 +2804,9 @@ class DataFrame:
         float_precision: int | None = ...,
         null_value: str | None = ...,
         quote_style: CsvQuoteStyle | None = ...,
+        storage_options: dict[str, Any] | None = ...,
+        credential_provider: CredentialProviderFunction | Literal["auto"] | None = ...,
+        retries: int = ...,
     ) -> None: ...
 
     def write_csv(
@@ -2797,6 +2826,11 @@ class DataFrame:
         float_precision: int | None = None,
         null_value: str | None = None,
         quote_style: CsvQuoteStyle | None = None,
+        storage_options: dict[str, Any] | None = None,
+        credential_provider: (
+            CredentialProviderFunction | Literal["auto"] | None
+        ) = "auto",
+        retries: int = 2,
     ) -> str | None:
         """
         Write to comma-separated values (CSV) file.
@@ -2856,6 +2890,30 @@ class DataFrame:
               Namely, when writing a field that does not parse as a valid float
               or integer, then quotes will be used even if they aren`t strictly
               necessary.
+        storage_options
+            Options that indicate how to connect to a cloud provider.
+
+            The cloud providers currently supported are AWS, GCP, and Azure.
+            See supported keys here:
+
+            * `aws <https://docs.rs/object_store/latest/object_store/aws/enum.AmazonS3ConfigKey.html>`_
+            * `gcp <https://docs.rs/object_store/latest/object_store/gcp/enum.GoogleConfigKey.html>`_
+            * `azure <https://docs.rs/object_store/latest/object_store/azure/enum.AzureConfigKey.html>`_
+            * Hugging Face (`hf://`): Accepts an API key under the `token` parameter: \
+            `{'token': '...'}`, or by setting the `HF_TOKEN` environment variable.
+
+            If `storage_options` is not provided, Polars will try to infer the
+            information from environment variables.
+        credential_provider
+            Provide a function that can be called to provide cloud storage
+            credentials. The function is expected to return a dictionary of
+            credential keys along with an optional credential expiry time.
+
+            .. warning::
+                This functionality is considered **unstable**. It may be changed
+                at any point without it being considered a breaking change.
+        retries
+            Number of retries if accessing a cloud instance fails.
 
         Examples
         --------
@@ -2910,6 +2968,18 @@ class DataFrame:
         elif isinstance(file, (str, os.PathLike)):
             file = normalize_filepath(file)
 
+        from polars.io.cloud.credential_provider import _maybe_init_credential_provider
+
+        credential_provider = _maybe_init_credential_provider(
+            credential_provider, file, storage_options, "write_csv"
+        )
+
+        if storage_options:
+            storage_options = list(storage_options.items())  # type: ignore[assignment]
+        else:
+            # Handle empty dict input
+            storage_options = None
+
         self._df.write_csv(
             file,
             include_bom,
@@ -2925,6 +2995,9 @@ class DataFrame:
             float_precision,
             null_value,
             quote_style,
+            cloud_options=storage_options,
+            credential_provider=credential_provider,
+            retries=retries,
         )
 
         if should_return_buffer:
@@ -3540,6 +3613,11 @@ class DataFrame:
         *,
         compression: IpcCompression = "uncompressed",
         compat_level: CompatLevel | None = None,
+        storage_options: dict[str, Any] | None = None,
+        credential_provider: (
+            CredentialProviderFunction | Literal["auto"] | None
+        ) = "auto",
+        retries: int = 2,
     ) -> BytesIO: ...
 
     @overload
@@ -3549,6 +3627,11 @@ class DataFrame:
         *,
         compression: IpcCompression = "uncompressed",
         compat_level: CompatLevel | None = None,
+        storage_options: dict[str, Any] | None = None,
+        credential_provider: (
+            CredentialProviderFunction | Literal["auto"] | None
+        ) = "auto",
+        retries: int = 2,
     ) -> None: ...
 
     @deprecate_renamed_parameter("future", "compat_level", version="1.1")
@@ -3558,6 +3641,11 @@ class DataFrame:
         *,
         compression: IpcCompression = "uncompressed",
         compat_level: CompatLevel | None = None,
+        storage_options: dict[str, Any] | None = None,
+        credential_provider: (
+            CredentialProviderFunction | Literal["auto"] | None
+        ) = "auto",
+        retries: int = 2,
     ) -> BytesIO | None:
         """
         Write to Arrow IPC binary stream or Feather file.
@@ -3574,6 +3662,30 @@ class DataFrame:
         compat_level
             Use a specific compatibility level
             when exporting Polars' internal data structures.
+        storage_options
+            Options that indicate how to connect to a cloud provider.
+
+            The cloud providers currently supported are AWS, GCP, and Azure.
+            See supported keys here:
+
+            * `aws <https://docs.rs/object_store/latest/object_store/aws/enum.AmazonS3ConfigKey.html>`_
+            * `gcp <https://docs.rs/object_store/latest/object_store/gcp/enum.GoogleConfigKey.html>`_
+            * `azure <https://docs.rs/object_store/latest/object_store/azure/enum.AzureConfigKey.html>`_
+            * Hugging Face (`hf://`): Accepts an API key under the `token` parameter: \
+            `{'token': '...'}`, or by setting the `HF_TOKEN` environment variable.
+
+            If `storage_options` is not provided, Polars will try to infer the
+            information from environment variables.
+        credential_provider
+            Provide a function that can be called to provide cloud storage
+            credentials. The function is expected to return a dictionary of
+            credential keys along with an optional credential expiry time.
+
+            .. warning::
+                This functionality is considered **unstable**. It may be changed
+                at any point without it being considered a breaking change.
+        retries
+            Number of retries if accessing a cloud instance fails.
 
         Examples
         --------
@@ -3603,7 +3715,30 @@ class DataFrame:
         if compression is None:
             compression = "uncompressed"
 
-        self._df.write_ipc(file, compression, compat_level)
+        from polars.io.cloud.credential_provider import _maybe_init_credential_provider
+
+        credential_provider = (
+            None
+            if return_bytes
+            else _maybe_init_credential_provider(
+                credential_provider, file, storage_options, "write_ipc"
+            )
+        )
+
+        if storage_options:
+            storage_options = list(storage_options.items())  # type: ignore[assignment]
+        else:
+            # Handle empty dict input
+            storage_options = None
+
+        self._df.write_ipc(
+            file,
+            compression,
+            compat_level,
+            cloud_options=storage_options,
+            credential_provider=credential_provider,
+            retries=retries,
+        )
         return file if return_bytes else None  # type: ignore[return-value]
 
     @overload
@@ -3692,6 +3827,11 @@ class DataFrame:
         pyarrow_options: dict[str, Any] | None = None,
         partition_by: str | Sequence[str] | None = None,
         partition_chunk_size_bytes: int = 4_294_967_296,
+        storage_options: dict[str, Any] | None = None,
+        credential_provider: (
+            CredentialProviderFunction | Literal["auto"] | None
+        ) = "auto",
+        retries: int = 2,
     ) -> None:
         """
         Write to Apache Parquet file.
@@ -3752,6 +3892,30 @@ class DataFrame:
             writing. Note this is calculated using the size of the DataFrame in
             memory - the size of the output file may differ depending on the
             file format / compression.
+        storage_options
+            Options that indicate how to connect to a cloud provider.
+
+            The cloud providers currently supported are AWS, GCP, and Azure.
+            See supported keys here:
+
+            * `aws <https://docs.rs/object_store/latest/object_store/aws/enum.AmazonS3ConfigKey.html>`_
+            * `gcp <https://docs.rs/object_store/latest/object_store/gcp/enum.GoogleConfigKey.html>`_
+            * `azure <https://docs.rs/object_store/latest/object_store/azure/enum.AzureConfigKey.html>`_
+            * Hugging Face (`hf://`): Accepts an API key under the `token` parameter: \
+            `{'token': '...'}`, or by setting the `HF_TOKEN` environment variable.
+
+            If `storage_options` is not provided, Polars will try to infer the
+            information from environment variables.
+        credential_provider
+            Provide a function that can be called to provide cloud storage
+            credentials. The function is expected to return a dictionary of
+            credential keys along with an optional credential expiry time.
+
+            .. warning::
+                This functionality is considered **unstable**. It may be changed
+                at any point without it being considered a breaking change.
+        retries
+            Number of retries if accessing a cloud instance fails.
 
         Examples
         --------
@@ -3833,41 +3997,57 @@ class DataFrame:
                     **(pyarrow_options or {}),
                 )
 
+            return
+
+        from polars.io.cloud.credential_provider import _maybe_init_credential_provider
+
+        credential_provider = _maybe_init_credential_provider(
+            credential_provider, file, storage_options, "write_parquet"
+        )
+
+        if storage_options:
+            storage_options = list(storage_options.items())  # type: ignore[assignment]
         else:
-            if isinstance(statistics, bool) and statistics:
-                statistics = {
-                    "min": True,
-                    "max": True,
-                    "distinct_count": False,
-                    "null_count": True,
-                }
-            elif isinstance(statistics, bool) and not statistics:
-                statistics = {}
-            elif statistics == "full":
-                statistics = {
-                    "min": True,
-                    "max": True,
-                    "distinct_count": True,
-                    "null_count": True,
-                }
+            # Handle empty dict input
+            storage_options = None
 
-            if partition_by is not None:
-                msg = "The `partition_by` parameter of `write_parquet` is considered unstable."
-                issue_unstable_warning(msg)
+        if isinstance(statistics, bool) and statistics:
+            statistics = {
+                "min": True,
+                "max": True,
+                "distinct_count": False,
+                "null_count": True,
+            }
+        elif isinstance(statistics, bool) and not statistics:
+            statistics = {}
+        elif statistics == "full":
+            statistics = {
+                "min": True,
+                "max": True,
+                "distinct_count": True,
+                "null_count": True,
+            }
 
-            if isinstance(partition_by, str):
-                partition_by = [partition_by]
+        if partition_by is not None:
+            msg = "The `partition_by` parameter of `write_parquet` is considered unstable."
+            issue_unstable_warning(msg)
 
-            self._df.write_parquet(
-                file,
-                compression,
-                compression_level,
-                statistics,
-                row_group_size,
-                data_page_size,
-                partition_by=partition_by,
-                partition_chunk_size_bytes=partition_chunk_size_bytes,
-            )
+        if isinstance(partition_by, str):
+            partition_by = [partition_by]
+
+        self._df.write_parquet(
+            file,
+            compression,
+            compression_level,
+            statistics,
+            row_group_size,
+            data_page_size,
+            partition_by=partition_by,
+            partition_chunk_size_bytes=partition_chunk_size_bytes,
+            cloud_options=storage_options,
+            credential_provider=credential_provider,
+            retries=retries,
+        )
 
     def write_database(
         self,
@@ -4283,13 +4463,18 @@ class DataFrame:
         _check_if_delta_available()
 
         from deltalake import DeltaTable, write_deltalake
+        from deltalake import __version__ as delta_version
+        from packaging.version import Version
 
         _check_for_unsupported_types(self.dtypes)
 
         if isinstance(target, (str, Path)):
             target = _resolve_delta_lake_uri(str(target), strict=False)
 
-        data = self.to_arrow()
+        if Version(delta_version) >= Version("0.23.0"):
+            data = self.to_arrow(compat_level=CompatLevel.newest())
+        else:
+            data = self.to_arrow()
 
         if mode == "merge":
             if delta_merge_options is None:
@@ -4316,7 +4501,6 @@ class DataFrame:
                 schema=schema,
                 mode=mode,
                 storage_options=storage_options,
-                large_dtypes=True,
                 **delta_write_options,
             )
             return None
@@ -4337,6 +4521,11 @@ class DataFrame:
         this function returns the visible size of the buffer, not its total capacity.
 
         FFI buffers are included in this estimation.
+
+        Note
+        ----
+        For objects, the estimated size only reports the pointer size, which is
+        a huge underestimation.
 
         Parameters
         ----------
@@ -6751,7 +6940,8 @@ class DataFrame:
         This is similar to a left-join except that we match on nearest key rather than
         equal keys.
 
-        Both DataFrames must be sorted by the asof_join key.
+        Both DataFrames must be sorted by the `on` key (within each `by` group, if
+        specified).
 
         For each row in the left DataFrame:
 
@@ -7076,6 +7266,7 @@ class DataFrame:
         validate: JoinValidation = "m:m",
         join_nulls: bool = False,
         coalesce: bool | None = None,
+        maintain_order: MaintainOrderJoin | None = None,
     ) -> DataFrame:
         """
         Join in SQL-like fashion.
@@ -7139,6 +7330,24 @@ class DataFrame:
             .. note::
                 Joining on any other expressions than `col`
                 will turn off coalescing.
+        maintain_order : {'none', 'left', 'right', 'left_right', 'right_left'}
+            Which DataFrame row order to preserve, if any.
+            Do not rely on any observed ordering without explicitly
+            setting this parameter, as your code may break in a future release.
+            Not specifying any ordering can improve performance
+            Supported for inner, left, right and full joins
+
+            * *none*
+                No specific ordering is desired. The ordering might differ across
+                Polars versions or even between different runs.
+            * *left*
+                Preserves the order of the left DataFrame.
+            * *right*
+                Preserves the order of the right DataFrame.
+            * *left_right*
+                First preserves the order of the left DataFrame, then the right.
+            * *right_left*
+                First preserves the order of the right DataFrame, then the left.
 
         See Also
         --------
@@ -7236,6 +7445,7 @@ class DataFrame:
                 validate=validate,
                 join_nulls=join_nulls,
                 coalesce=coalesce,
+                maintain_order=maintain_order,
             )
             .collect(_eager=True)
         )
@@ -7727,8 +7937,8 @@ class DataFrame:
             Mapping of column names (or selector) to dtypes, or a single dtype
             to which all columns will be cast.
         strict
-            Throw an error if a cast could not be done (for instance, due to an
-            overflow).
+            Raise if cast is invalid on rows after predicates are pushed down.
+            If `False`, invalid casts will produce null values.
 
         Examples
         --------
@@ -8246,7 +8456,7 @@ class DataFrame:
               {'min', 'max', 'first', 'last', 'sum', 'mean', 'median', 'len'}
             - An expression to do the aggregation.
         maintain_order
-            Sort the grouped keys so that the output order is predictable.
+            Ensure the values of `index` are sorted by discovery order.
         sort_columns
             Sort the transposed columns by name. Default is by order of discovery.
         separator
@@ -9524,7 +9734,9 @@ class DataFrame:
                 9.0
         ]
         """
-        return wrap_s(self._df.sum_horizontal(ignore_nulls)).alias("sum")
+        return self.select(
+            sum=F.sum_horizontal(F.all(), ignore_nulls=ignore_nulls)
+        ).to_series()
 
     def mean(self) -> DataFrame:
         """
@@ -9584,7 +9796,9 @@ class DataFrame:
                 4.5
         ]
         """
-        return wrap_s(self._df.mean_horizontal(ignore_nulls)).alias("mean")
+        return self.select(
+            mean=F.mean_horizontal(F.all(), ignore_nulls=ignore_nulls)
+        ).to_series()
 
     def std(self, ddof: int = 1) -> DataFrame:
         """

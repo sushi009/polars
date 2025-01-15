@@ -65,7 +65,7 @@ default = [
 ]
 ndarray = ["polars-core/ndarray"]
 # serde support for dataframes and series
-serde = ["polars-core/serde", "polars-utils/serde"]
+serde = ["polars-core/serde", "polars-utils/serde", "ir_serde"]
 serde-lazy = [
   "polars-core/serde-lazy",
   "polars-lazy?/serde",
@@ -77,7 +77,6 @@ serde-lazy = [
 parquet = ["polars-io", "polars-lazy?/parquet", "polars-io/parquet", "polars-sql?/parquet"]
 async = ["polars-lazy?/async"]
 cloud = ["polars-lazy?/cloud", "polars-io/cloud"]
-cloud_write = ["cloud", "polars-lazy?/cloud_write"]
 aws = ["async", "cloud", "polars-io/aws"]
 http = ["async", "cloud", "polars-io/http"]
 azure = ["async", "cloud", "polars-io/azure"]
@@ -267,6 +266,7 @@ dtype-full = [
   "dtype-array",
   "dtype-i8",
   "dtype-i16",
+  "dtype-i128",
   "dtype-decimal",
   "dtype-u8",
   "dtype-u16",
@@ -320,12 +320,21 @@ dtype-i8 = [
   "polars-io/dtype-i8",
   "polars-lazy?/dtype-i8",
   "polars-ops/dtype-i8",
+  "polars-time?/dtype-i8",
 ]
 dtype-i16 = [
   "polars-core/dtype-i16",
   "polars-io/dtype-i16",
   "polars-lazy?/dtype-i16",
   "polars-ops/dtype-i16",
+  "polars-time?/dtype-i16",
+]
+dtype-i128 = [
+  "polars-core/dtype-i128",
+  "polars-io/dtype-i128",
+  "polars-lazy?/dtype-i128",
+  "polars-ops/dtype-i128",
+  "polars-time?/dtype-i128",
 ]
 dtype-decimal = [
   "polars-core/dtype-decimal",
@@ -339,12 +348,14 @@ dtype-u8 = [
   "polars-io/dtype-u8",
   "polars-lazy?/dtype-u8",
   "polars-ops/dtype-u8",
+  "polars-time?/dtype-u8",
 ]
 dtype-u16 = [
   "polars-core/dtype-u16",
   "polars-io/dtype-u16",
   "polars-lazy?/dtype-u16",
   "polars-ops/dtype-u16",
+  "polars-time?/dtype-u16",
 ]
 dtype-categorical = [
   "polars-core/dtype-categorical",
@@ -424,7 +435,6 @@ docs-selection = [
   "ir_serde",
   "cloud",
   "async",
-  "cloud_write",
 ]
 
 bench = [

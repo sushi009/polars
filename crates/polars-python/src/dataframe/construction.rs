@@ -52,8 +52,12 @@ impl PyDataFrame {
     }
 
     #[staticmethod]
-    pub fn from_arrow_record_batches(py: Python, rb: Vec<Bound<PyAny>>) -> PyResult<Self> {
-        let df = interop::arrow::to_rust::to_rust_df(py, &rb)?;
+    pub fn from_arrow_record_batches(
+        py: Python,
+        rb: Vec<Bound<PyAny>>,
+        schema: Bound<PyAny>,
+    ) -> PyResult<Self> {
+        let df = interop::arrow::to_rust::to_rust_df(py, &rb, schema)?;
         Ok(Self::from(df))
     }
 }
@@ -145,7 +149,7 @@ fn dicts_to_rows<'a>(
 ) -> PyResult<Vec<Row<'a>>> {
     let len = data.len()?;
     let mut rows = Vec::with_capacity(len);
-    for d in data.iter()? {
+    for d in data.try_iter()? {
         let d = d?;
         let d = d.downcast::<PyDict>()?;
 
@@ -189,7 +193,7 @@ fn infer_schema_names_from_data(
         .unwrap_or(data_len);
 
     let mut names = PlIndexSet::new();
-    for d in data.iter()?.take(infer_schema_length) {
+    for d in data.try_iter()?.take(infer_schema_length) {
         let d = d?;
         let d = d.downcast::<PyDict>()?;
         let keys = d.keys();

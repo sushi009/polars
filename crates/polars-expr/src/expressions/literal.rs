@@ -25,6 +25,8 @@ impl LiteralExpr {
             Int16(v) => Int16Chunked::full(get_literal_name().clone(), *v, 1).into_column(),
             Int32(v) => Int32Chunked::full(get_literal_name().clone(), *v, 1).into_column(),
             Int64(v) => Int64Chunked::full(get_literal_name().clone(), *v, 1).into_column(),
+            #[cfg(feature = "dtype-i128")]
+            Int128(v) => Int128Chunked::full(get_literal_name().clone(), *v, 1).into_column(),
             #[cfg(feature = "dtype-u8")]
             UInt8(v) => UInt8Chunked::full(get_literal_name().clone(), *v, 1).into_column(),
             #[cfg(feature = "dtype-u16")]
@@ -119,6 +121,7 @@ impl PhysicalExpr for LiteralExpr {
     fn as_expression(&self) -> Option<&Expr> {
         Some(&self.1)
     }
+
     fn evaluate(&self, _df: &DataFrame, _state: &ExecutionState) -> PolarsResult<Column> {
         self.as_column()
     }
@@ -145,6 +148,8 @@ impl PhysicalExpr for LiteralExpr {
     fn as_partitioned_aggregator(&self) -> Option<&dyn PartitionedAggregation> {
         Some(self)
     }
+
+    fn collect_live_columns(&self, _lv: &mut PlIndexSet<PlSmallStr>) {}
 
     fn to_field(&self, _input_schema: &Schema) -> PolarsResult<Field> {
         let dtype = self.0.get_datatype();

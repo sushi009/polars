@@ -31,7 +31,7 @@ where
     )
 }
 
-fn is_in_helper<'a, T>(ca: &'a ChunkedArray<T>, other: &Series) -> PolarsResult<BooleanChunked>
+fn is_in_helper<'a, T>(ca: &'a ChunkedArray<T>, other: &'a Series) -> PolarsResult<BooleanChunked>
 where
     T: PolarsDataType,
     T::Physical<'a>: TotalHash + TotalEq + Copy + ToTotalOrd,
@@ -726,7 +726,7 @@ pub fn is_in(s: &Series, other: &Series) -> PolarsResult<BooleanChunked> {
             let s = s.to_scale(scale)?;
             let other = other.to_scale(scale)?.into_owned().into_series();
 
-            is_in_numeric(s.physical(), &other)
+            is_in_numeric(s.physical(), other.to_physical_repr().as_ref())
         },
         dt if dt.to_physical().is_numeric() => {
             let s = s.to_physical_repr();

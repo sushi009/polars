@@ -25,7 +25,6 @@ impl IR {
             Filter { .. } => "selection",
             DataFrameScan { .. } => "df",
             Select { .. } => "projection",
-            Reduce { .. } => "reduce",
             Sort { .. } => "sort",
             Cache { .. } => "cache",
             GroupBy { .. } => "aggregate",
@@ -39,8 +38,6 @@ impl IR {
             Sink { payload, .. } => match payload {
                 SinkType::Memory => "sink (memory)",
                 SinkType::File { .. } => "sink (file)",
-                #[cfg(feature = "cloud")]
-                SinkType::Cloud { .. } => "sink (cloud)",
             },
             SimpleProjection { .. } => "simple_projection",
             Invalid => "invalid",
@@ -85,7 +82,6 @@ impl IR {
             } => output_schema.as_ref().unwrap_or(schema),
             Filter { input, .. } => return arena.get(*input).schema(arena),
             Select { schema, .. } => schema,
-            Reduce { schema, .. } => schema,
             SimpleProjection { columns, .. } => columns,
             GroupBy { schema, .. } => schema,
             Join { schema, .. } => schema,
@@ -146,7 +142,6 @@ impl IR {
                 ..
             } => output_schema.as_ref().unwrap_or(schema).clone(),
             Select { schema, .. }
-            | Reduce { schema, .. }
             | GroupBy { schema, .. }
             | Join { schema, .. }
             | HStack { schema, .. }

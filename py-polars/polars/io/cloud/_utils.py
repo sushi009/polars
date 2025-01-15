@@ -16,7 +16,8 @@ def _first_scan_path(
     | list[Path]
     | list[IO[str]]
     | list[IO[bytes]]
-    | list[bytes],
+    | list[bytes]
+    | None,
 ) -> str | Path | None:
     if isinstance(source, (str, Path)):
         return source
@@ -34,6 +35,10 @@ def _get_path_scheme(path: str | Path) -> str | None:
 
 def _is_aws_cloud(scheme: str) -> bool:
     return any(scheme == x for x in ["s3", "s3a"])
+
+
+def _is_azure_cloud(scheme: str) -> bool:
+    return any(scheme == x for x in ["az", "azure", "adl", "abfs", "abfss"])
 
 
 def _is_gcp_cloud(scheme: str) -> bool:

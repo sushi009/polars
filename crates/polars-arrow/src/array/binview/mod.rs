@@ -180,7 +180,7 @@ impl<T: ViewType + ?Sized> BinaryViewArrayGeneric<T> {
             // }
 
             for (i, view) in views.iter().enumerate() {
-                let is_valid = validity.as_ref().map_or(true, |v| v.get_bit(i));
+                let is_valid = validity.as_ref().is_none_or(|v| v.get_bit(i));
 
                 if !is_valid {
                     continue;
@@ -487,13 +487,21 @@ impl<T: ViewType + ?Sized> BinaryViewArrayGeneric<T> {
         let views = self.views.make_mut();
         let completed_buffers = self.buffers.to_vec();
         let validity = self.validity.map(|bitmap| bitmap.make_mut());
+
+        // We need to know the total_bytes_len if we are going to mutate it.
+        let mut total_bytes_len = self.total_bytes_len.load(Ordering::Relaxed);
+        if total_bytes_len == UNKNOWN_LEN {
+            total_bytes_len = views.iter().map(|view| view.length as u64).sum();
+        }
+        let total_bytes_len = total_bytes_len as usize;
+
         MutableBinaryViewArray {
             views,
             completed_buffers,
             in_progress_buffer: vec![],
             validity,
             phantom: Default::default(),
-            total_bytes_len: self.total_bytes_len.load(Ordering::Relaxed) as usize,
+            total_bytes_len,
             total_buffer_len: self.total_buffer_len,
             stolen_buffers: PlHashMap::new(),
         }
@@ -598,7 +606,7 @@ impl<T: ViewType + ?Sized> Array for BinaryViewArrayGeneric<T> {
 
     fn with_validity(&self, validity: Option<Bitmap>) -> Box<dyn Array> {
         debug_assert!(
-            validity.as_ref().map_or(true, |v| v.len() == self.len()),
+            validity.as_ref().is_none_or(|v| v.len() == self.len()),
             "{} != {}",
             validity.as_ref().unwrap().len(),
             self.len()

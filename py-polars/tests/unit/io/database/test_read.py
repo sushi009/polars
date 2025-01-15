@@ -190,8 +190,8 @@ class ExceptionTestParams(NamedTuple):
                 schema_overrides={"id": pl.UInt8},
             ),
             marks=pytest.mark.skipif(
-                sys.version_info < (3, 9) or sys.platform == "win32",
-                reason="adbc_driver_sqlite not available below Python 3.9 / on Windows",
+                sys.platform == "win32",
+                reason="adbc_driver_sqlite not available on Windows",
             ),
             id="uri: adbc",
         ),
@@ -256,8 +256,8 @@ class ExceptionTestParams(NamedTuple):
                 expected_dates=["2020-01-01", "2021-12-31"],
             ),
             marks=pytest.mark.skipif(
-                sys.version_info < (3, 9) or sys.platform == "win32",
-                reason="adbc_driver_sqlite not available below Python 3.9 / on Windows",
+                sys.platform == "win32",
+                reason="adbc_driver_sqlite not available on Windows",
             ),
             id="conn: adbc (fetchall)",
         ),
@@ -275,8 +275,8 @@ class ExceptionTestParams(NamedTuple):
                 batch_size=1,
             ),
             marks=pytest.mark.skipif(
-                sys.version_info < (3, 9) or sys.platform == "win32",
-                reason="adbc_driver_sqlite not available below Python 3.9 / on Windows",
+                sys.platform == "win32",
+                reason="adbc_driver_sqlite not available on Windows",
             ),
             id="conn: adbc (batched)",
         ),
@@ -463,8 +463,7 @@ def test_read_database_parameterised(tmp_sqlite_db: Path) -> None:
     ],
 )
 @pytest.mark.skipif(
-    sys.version_info < (3, 9) or sys.platform == "win32",
-    reason="adbc_driver_sqlite not available on py3.8/windows",
+    sys.platform == "win32", reason="adbc_driver_sqlite not available on Windows"
 )
 def test_read_database_parameterised_uri(
     param: str, param_value: Any, tmp_sqlite_db: Path
@@ -751,6 +750,10 @@ def test_read_database_cx_credentials(uri: str) -> None:
             pl.read_database_uri("SELECT * FROM data", uri=uri, engine="connectorx")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="kuzu segfaults on windows: https://github.com/pola-rs/polars/actions/runs/12502055945/job/34880479875?pr=20462",
+)
 @pytest.mark.write_disk
 def test_read_kuzu_graph_database(tmp_path: Path, io_files_path: Path) -> None:
     import kuzu

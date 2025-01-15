@@ -30,11 +30,6 @@ impl IR {
                 input: inputs[0],
                 predicate: exprs.pop().unwrap(),
             },
-            Reduce { schema, .. } => Reduce {
-                input: inputs[0],
-                exprs,
-                schema: schema.clone(),
-            },
             Select {
                 schema, options, ..
             } => Select {
@@ -127,19 +122,10 @@ impl IR {
                 df,
                 schema,
                 output_schema,
-                filter: selection,
-            } => {
-                let mut new_selection = None;
-                if selection.is_some() {
-                    new_selection = exprs.pop()
-                }
-
-                DataFrameScan {
-                    df: df.clone(),
-                    schema: schema.clone(),
-                    output_schema: output_schema.clone(),
-                    filter: new_selection,
-                }
+            } => DataFrameScan {
+                df: df.clone(),
+                schema: schema.clone(),
+                output_schema: output_schema.clone(),
             },
             MapFunction { function, .. } => MapFunction {
                 input: inputs[0],
@@ -169,7 +155,6 @@ impl IR {
             Slice { .. } | Cache { .. } | Distinct { .. } | Union { .. } | MapFunction { .. } => {},
             Sort { by_column, .. } => container.extend_from_slice(by_column),
             Filter { predicate, .. } => container.push(predicate.clone()),
-            Reduce { exprs, .. } => container.extend_from_slice(exprs),
             Select { expr, .. } => container.extend_from_slice(expr),
             GroupBy { keys, aggs, .. } => {
                 let iter = keys.iter().cloned().chain(aggs.iter().cloned());
@@ -187,13 +172,7 @@ impl IR {
                     container.push(pred.clone())
                 }
             },
-            DataFrameScan {
-                filter: selection, ..
-            } => {
-                if let Some(expr) = selection {
-                    container.push(expr.clone())
-                }
-            },
+            DataFrameScan { .. } => {},
             #[cfg(feature = "python")]
             PythonScan { .. } => {},
             HConcat { .. } => {},
@@ -214,26 +193,21 @@ impl IR {
     /// or an in-memory DataFrame has none. A Union has multiple.
     pub fn copy_inputs<T>(&self, container: &mut T)
     where
-        T: PushNode,
+        T: Extend<Node>,
     {
         use IR::*;
         let input = match self {
             Union { inputs, .. } => {
-                for node in inputs {
-                    container.push_node(*node);
-                }
+                container.extend(inputs.iter().cloned());
                 return;
             },
             HConcat { inputs, .. } => {
-                for node in inputs {
-                    container.push_node(*node);
-                }
+                container.extend(inputs.iter().cloned());
                 return;
             },
             Slice { input, .. } => *input,
             Filter { input, .. } => *input,
             Select { input, .. } => *input,
-            Reduce { input, .. } => *input,
             SimpleProjection { input, .. } => *input,
             Sort { input, .. } => *input,
             Cache { input, .. } => *input,
@@ -243,8 +217,7 @@ impl IR {
                 input_right,
                 ..
             } => {
-                container.push_node(*input_left);
-                container.push_node(*input_right);
+                container.extend([*input_left, *input_right]);
                 return;
             },
             HStack { input, .. } => *input,
@@ -254,9 +227,7 @@ impl IR {
             ExtContext {
                 input, contexts, ..
             } => {
-                for n in contexts {
-                    container.push_node(*n)
-                }
+                container.extend(contexts.iter().cloned());
                 *input
             },
             Scan { .. } => return,
@@ -265,7 +236,7 @@ impl IR {
             PythonScan { .. } => return,
             Invalid => unreachable!(),
         };
-        container.push_node(input)
+        container.extend([input])
     }
 
     pub fn get_inputs(&self) -> UnitVec<Node> {

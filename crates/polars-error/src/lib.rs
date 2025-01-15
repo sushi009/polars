@@ -3,6 +3,7 @@ mod warning;
 
 use std::borrow::Cow;
 use std::collections::TryReserveError;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter, Write};
 use std::ops::Deref;
@@ -27,7 +28,7 @@ static ERROR_STRATEGY: LazyLock<ErrorStrategy> = LazyLock::new(|| {
     }
 });
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ErrString(Cow<'static, str>);
 
 impl ErrString {
@@ -73,7 +74,7 @@ impl Display for ErrString {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum PolarsError {
     #[error("not found: {0}")]
     ColumnNotFound(ErrString),
@@ -165,6 +166,12 @@ impl From<arrow_format::ipc::planus::Error> for PolarsError {
 impl From<TryReserveError> for PolarsError {
     fn from(value: TryReserveError) -> Self {
         polars_err!(ComputeError: "OOM: {}", value)
+    }
+}
+
+impl From<Infallible> for PolarsError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
     }
 }
 

@@ -107,6 +107,8 @@ fn visualize_plan_rec(
             FileType::Csv(_) => ("csv-sink".to_string(), from_ref(input)),
             #[cfg(feature = "json")]
             FileType::Json(_) => ("json-sink".to_string(), from_ref(input)),
+            #[allow(unreachable_patterns)]
+            _ => todo!(),
         },
         PhysNodeKind::InMemoryMap { input, map: _ } => {
             ("in-memory-map".to_string(), from_ref(input))
@@ -214,8 +216,20 @@ fn visualize_plan_rec(
             left_on,
             right_on,
             args,
+            ..
+        }
+        | PhysNodeKind::EquiJoin {
+            input_left,
+            input_right,
+            left_on,
+            right_on,
+            args,
         } => {
-            let mut label = "in-memory-join".to_string();
+            let mut label = if matches!(phys_sm[node_key].kind, PhysNodeKind::EquiJoin { .. }) {
+                "equi-join".to_string()
+            } else {
+                "in-memory-join".to_string()
+            };
             write!(label, r"\nleft_on:\n{}", fmt_exprs(left_on, expr_arena)).unwrap();
             write!(label, r"\nright_on:\n{}", fmt_exprs(right_on, expr_arena)).unwrap();
             write!(

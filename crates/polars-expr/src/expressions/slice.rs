@@ -110,6 +110,11 @@ impl PhysicalExpr for SliceExpr {
                 .collect::<PolarsResult<Vec<_>>>()
         })?;
         let mut ac = results.pop().unwrap();
+
+        if let AggState::AggregatedScalar(_) = ac.agg_state() {
+            polars_bail!(InvalidOperation: "cannot slice() an aggregated scalar value")
+        }
+
         let mut ac_length = results.pop().unwrap();
         let mut ac_offset = results.pop().unwrap();
 
@@ -261,6 +266,12 @@ impl PhysicalExpr for SliceExpr {
         ac.with_groups(groups).set_original_len(false);
 
         Ok(ac)
+    }
+
+    fn collect_live_columns(&self, lv: &mut PlIndexSet<PlSmallStr>) {
+        self.input.collect_live_columns(lv);
+        self.offset.collect_live_columns(lv);
+        self.length.collect_live_columns(lv);
     }
 
     fn to_field(&self, input_schema: &Schema) -> PolarsResult<Field> {

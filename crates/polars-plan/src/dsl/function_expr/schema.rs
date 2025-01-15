@@ -329,14 +329,23 @@ impl FunctionExpr {
             ForwardFill { .. } => mapper.with_same_dtype(),
             MaxHorizontal => mapper.map_to_supertype(),
             MinHorizontal => mapper.map_to_supertype(),
-            SumHorizontal => {
-                if mapper.fields[0].dtype() == &DataType::Boolean {
-                    mapper.with_dtype(DataType::UInt32)
-                } else {
-                    mapper.map_to_supertype()
-                }
+            SumHorizontal { .. } => {
+                mapper.map_to_supertype().map(|mut f| {
+                    if f.dtype == DataType::Boolean {
+                        f.dtype = IDX_DTYPE;
+                    }
+                    f
+                })
             },
-            MeanHorizontal => mapper.map_to_float_dtype(),
+            MeanHorizontal { .. } => {
+                mapper.map_to_supertype().map(|mut f| {
+                    match f.dtype {
+                        dt @ DataType::Float32 => { f.dtype = dt; },
+                        _ => { f.dtype = DataType::Float64; },
+                    };
+                    f
+                })
+            }
             #[cfg(feature = "ewma")]
             EwmMean { .. } => mapper.map_to_float_dtype(),
             #[cfg(feature = "ewma_by")]

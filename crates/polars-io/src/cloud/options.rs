@@ -20,13 +20,10 @@ pub use object_store::gcp::GoogleConfigKey;
 use object_store::ClientOptions;
 #[cfg(any(feature = "aws", feature = "gcp", feature = "azure"))]
 use object_store::{BackoffConfig, RetryConfig};
-#[cfg(feature = "aws")]
 use once_cell::sync::Lazy;
 use polars_error::*;
 #[cfg(feature = "aws")]
 use polars_utils::cache::FastFixedCache;
-#[cfg(feature = "aws")]
-use polars_utils::pl_str::PlSmallStr;
 #[cfg(feature = "aws")]
 use regex::Regex;
 #[cfg(feature = "http")]
@@ -44,8 +41,11 @@ use crate::file_cache::get_env_file_cache_ttl;
 use crate::pl_async::with_concurrency_budget;
 
 #[cfg(feature = "aws")]
-static BUCKET_REGION: Lazy<std::sync::Mutex<FastFixedCache<PlSmallStr, PlSmallStr>>> =
-    Lazy::new(|| std::sync::Mutex::new(FastFixedCache::new(32)));
+static BUCKET_REGION: Lazy<
+    std::sync::Mutex<
+        FastFixedCache<polars_utils::pl_str::PlSmallStr, polars_utils::pl_str::PlSmallStr>,
+    >,
+> = Lazy::new(|| std::sync::Mutex::new(FastFixedCache::new(32)));
 
 /// The type of the config keys must satisfy the following requirements:
 /// 1. must be easily collected into a HashMap, the type required by the object_crate API.
@@ -83,14 +83,22 @@ pub struct CloudOptions {
 
 impl Default for CloudOptions {
     fn default() -> Self {
-        Self {
+        Self::default_static_ref().clone()
+    }
+}
+
+impl CloudOptions {
+    pub fn default_static_ref() -> &'static Self {
+        static DEFAULT: Lazy<CloudOptions> = Lazy::new(|| CloudOptions {
             max_retries: 2,
             #[cfg(feature = "file_cache")]
             file_cache_ttl: get_env_file_cache_ttl(),
             config: None,
             #[cfg(feature = "cloud")]
-            credential_provider: Default::default(),
-        }
+            credential_provider: None,
+        });
+
+        &DEFAULT
     }
 }
 
@@ -131,7 +139,7 @@ where
         .collect::<Configs<T>>())
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CloudType {
     Aws,
     Azure,
@@ -361,7 +369,7 @@ impl CloudOptions {
                             let region =
                                 std::str::from_utf8(region.as_bytes()).map_err(to_compute_err)?;
                             let mut bucket_region = BUCKET_REGION.lock().unwrap();
-                            bucket_region.insert(bucket.into(), region.into());
+                            bucket_region.insert(bucket, region.into());
                             builder = builder.with_config(AmazonS3ConfigKey::Region, region)
                         }
                     }
@@ -399,16 +407,20 @@ impl CloudOptions {
     pub fn build_azure(&self, url: &str) -> PolarsResult<impl object_store::ObjectStore> {
         use super::credential_provider::IntoCredentialProvider;
 
-        let mut builder = if self.credential_provider.is_none() {
-            MicrosoftAzureBuilder::from_env()
-        } else {
-            MicrosoftAzureBuilder::new()
-        };
+        let mut storage_account: Option<polars_utils::pl_str::PlSmallStr> = None;
+
+        // The credential provider `self.credentials` is prioritized if it is set. We also need
+        // `from_env()` as it may source environment configured storage account name.
+        let mut builder = MicrosoftAzureBuilder::from_env();
+
         if let Some(options) = &self.config {
             let CloudConfig::Azure(options) = options else {
                 panic!("impl error: cloud type mismatch")
             };
             for (key, value) in options.iter() {
+                if key == &AzureConfigKey::AccountName {
+                    storage_account = Some(value.into());
+                }
                 builder = builder.with_config(*key, value);
             }
         }
@@ -418,8 +430,18 @@ impl CloudOptions {
             .with_url(url)
             .with_retry(get_retry_config(self.max_retries));
 
+        // Prefer the one embedded in the path
+        storage_account = extract_adls_uri_storage_account(url)
+            .map(|x| x.into())
+            .or(storage_account);
+
         let builder = if let Some(v) = self.credential_provider.clone() {
             builder.with_credentials(v.into_azure_provider())
+        } else if let Some(v) = storage_account
+            .as_deref()
+            .and_then(get_azure_storage_account_key)
+        {
+            builder.with_access_key(v)
         } else {
             builder
         };
@@ -567,7 +589,7 @@ impl CloudOptions {
                             let hf_home = std::env::var("HF_HOME");
                             let hf_home = hf_home.as_deref();
                             let hf_home = hf_home.unwrap_or("~/.cache/huggingface");
-                            let hf_home = resolve_homedir(std::path::Path::new(&hf_home));
+                            let hf_home = resolve_homedir(&hf_home);
                             let cached_token_path = hf_home.join("token");
 
                             let v = std::string::String::from_utf8(
@@ -601,6 +623,99 @@ impl CloudOptions {
             },
         }
     }
+}
+
+/// ```text
+/// "abfss://{CONTAINER}@{STORAGE_ACCOUNT}.dfs.core.windows.net/"
+///                      ^^^^^^^^^^^^^^^^^
+/// ```
+#[cfg(feature = "azure")]
+fn extract_adls_uri_storage_account(path: &str) -> Option<&str> {
+    Some(
+        path.split_once("://")?
+            .1
+            .split_once('/')?
+            .0
+            .split_once('@')?
+            .1
+            .split_once(".dfs.core.windows.net")?
+            .0,
+    )
+}
+
+/// Attempt to retrieve the storage account key for this account using the Azure CLI.
+#[cfg(feature = "azure")]
+fn get_azure_storage_account_key(account_name: &str) -> Option<String> {
+    if polars_core::config::verbose() {
+        eprintln!(
+            "get_azure_storage_account_key: storage_account_name: {}",
+            account_name
+        );
+    }
+
+    let mut cmd = if cfg!(target_family = "windows") {
+        // https://github.com/apache/arrow-rs/blob/565c24b8071269b02c3937e34c51eacf0f4cbad6/object_store/src/azure/credential.rs#L877-L894
+        let mut v = std::process::Command::new("cmd");
+        v.args([
+            "/C",
+            "az",
+            "storage",
+            "account",
+            "keys",
+            "list",
+            "--output",
+            "json",
+            "--account-name",
+            account_name,
+        ]);
+        v
+    } else {
+        let mut v = std::process::Command::new("az");
+        v.args([
+            "storage",
+            "account",
+            "keys",
+            "list",
+            "--output",
+            "json",
+            "--account-name",
+            account_name,
+        ]);
+        v
+    };
+
+    let json_resp = cmd
+        .output()
+        .ok()
+        .filter(|x| x.status.success())
+        .map(|x| String::from_utf8(x.stdout))?
+        .ok()?;
+
+    // [
+    //     {
+    //         "creationTime": "1970-01-01T00:00:00.000000+00:00",
+    //         "keyName": "key1",
+    //         "permissions": "FULL",
+    //         "value": "..."
+    //     },
+    //     {
+    //         "creationTime": "1970-01-01T00:00:00.000000+00:00",
+    //         "keyName": "key2",
+    //         "permissions": "FULL",
+    //         "value": "..."
+    //     }
+    // ]
+
+    #[derive(Debug, serde::Deserialize)]
+    struct S {
+        value: String,
+    }
+
+    let resp: Vec<S> = serde_json::from_str(&json_resp).ok()?;
+
+    let access_key = resp.into_iter().next()?.value;
+
+    Some(access_key)
 }
 
 #[cfg(feature = "cloud")]

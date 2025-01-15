@@ -27,10 +27,11 @@ polars-utils = { workspace = true }
 
 ahash = { workspace = true }
 arboard = { workspace = true, optional = true }
+bincode = { workspace = true }
 bytemuck = { workspace = true }
 bytes = { workspace = true }
-ciborium = { workspace = true }
 either = { workspace = true }
+flate2 = { workspace = true }
 itoa = { workspace = true }
 libc = { workspace = true }
 ndarray = { workspace = true }
@@ -172,6 +173,7 @@ dtype-i8 = []
 dtype-i16 = []
 dtype-u8 = []
 dtype-u16 = []
+dtype-i128 = []
 dtype-array = []
 object = ["polars/object"]
 
@@ -181,6 +183,7 @@ dtypes = [
   "dtype-i8",
   "dtype-u16",
   "dtype-u8",
+  "dtype-i128",
   "object",
 ]
 

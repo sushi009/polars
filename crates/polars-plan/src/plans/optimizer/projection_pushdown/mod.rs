@@ -334,8 +334,6 @@ impl ProjectionPushDown {
         use IR::*;
 
         match logical_plan {
-            // Should not yet be here
-            Reduce { .. } => unreachable!(),
             Select { expr, input, .. } => process_projection(
                 self,
                 input,
@@ -365,7 +363,6 @@ impl ProjectionPushDown {
                 df,
                 schema,
                 mut output_schema,
-                filter: selection,
                 ..
             } => {
                 if !acc_projections.is_empty() {
@@ -380,7 +377,6 @@ impl ProjectionPushDown {
                     df,
                     schema,
                     output_schema,
-                    filter: selection,
                 };
                 Ok(lp)
             },
@@ -436,7 +432,7 @@ impl ProjectionPushDown {
                             &acc_projections,
                             expr_arena,
                             &file_info.schema,
-                            scan_type.sort_projection(&file_options) || hive_parts.is_some(),
+                            scan_type.sort_projection(&file_options),
                         )?;
 
                         hive_parts = if let Some(hive_parts) = hive_parts {
@@ -480,10 +476,30 @@ impl ProjectionPushDown {
                             // based on its position in the file. This is extremely important for the
                             // new-streaming engine.
 
+                            // row_index is separate
+                            let opt_row_index_col_name = file_options
+                                .row_index
+                                .as_ref()
+                                .map(|v| &v.name)
+                                .filter(|v| schema.contains(v))
+                                .cloned();
+
+                            if let Some(name) = &opt_row_index_col_name {
+                                out.insert_at_index(
+                                    0,
+                                    name.clone(),
+                                    schema.get(name).unwrap().clone(),
+                                )
+                                .unwrap();
+                            }
+
                             {
                                 let df_fields_iter = &mut schema
                                     .iter()
-                                    .filter(|fld| !partition_schema.contains(fld.0))
+                                    .filter(|fld| {
+                                        !partition_schema.contains(fld.0)
+                                            && Some(fld.0) != opt_row_index_col_name.as_ref()
+                                    })
                                     .map(|(a, b)| (a.clone(), b.clone()));
 
                                 let hive_fields_iter = &mut partition_schema
@@ -535,7 +551,7 @@ impl ProjectionPushDown {
                 if let Some(RowIndex { ref name, .. }) = file_options.row_index {
                     if output_schema
                         .as_ref()
-                        .map_or(false, |schema| !schema.contains(name))
+                        .is_some_and(|schema| !schema.contains(name))
                     {
                         // Need to remove it from the input schema so
                         // that projection indices are correct.
@@ -549,7 +565,7 @@ impl ProjectionPushDown {
                 if let Some(col_name) = &file_options.include_file_paths {
                     if output_schema
                         .as_ref()
-                        .map_or(false, |schema| !schema.contains(col_name))
+                        .is_some_and(|schema| !schema.contains(col_name))
                     {
                         // Need to remove it from the input schema so
                         // that projection indices are correct.

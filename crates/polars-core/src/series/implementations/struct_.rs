@@ -26,11 +26,11 @@ impl PrivateSeries for SeriesWrap<StructChunked> {
         self.0.compute_len()
     }
 
-    fn _get_flags(&self) -> MetadataFlags {
-        MetadataFlags::empty()
+    fn _get_flags(&self) -> StatisticsFlags {
+        StatisticsFlags::empty()
     }
 
-    fn _set_flags(&mut self, _flags: MetadataFlags) {}
+    fn _set_flags(&mut self, _flags: StatisticsFlags) {}
 
     // TODO! remove this. Very slow. Asof join should use row-encoding.
     unsafe fn equal_element(&self, idx_self: usize, idx_other: usize, other: &Series) -> bool {
@@ -53,6 +53,13 @@ impl PrivateSeries for SeriesWrap<StructChunked> {
         self.0
             .zip_with(mask, other.struct_()?)
             .map(|ca| ca.into_series())
+    }
+
+    fn into_total_eq_inner<'a>(&'a self) -> Box<dyn TotalEqInner + 'a> {
+        invalid_operation_panic!(into_total_eq_inner, self)
+    }
+    fn into_total_ord_inner<'a>(&'a self) -> Box<dyn TotalOrdInner + 'a> {
+        invalid_operation_panic!(into_total_ord_inner, self)
     }
 
     #[cfg(feature = "algorithm_group_by")]
@@ -148,10 +155,6 @@ impl SeriesTrait for SeriesWrap<StructChunked> {
 
     fn cast(&self, dtype: &DataType, cast_options: CastOptions) -> PolarsResult<Series> {
         self.0.cast_with_options(dtype, cast_options)
-    }
-
-    fn get(&self, index: usize) -> PolarsResult<AnyValue> {
-        self.0.get_any_value(index)
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> AnyValue {

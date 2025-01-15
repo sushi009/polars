@@ -4,7 +4,6 @@ use arrow::array::*;
 use arrow::compute::concatenate::concatenate;
 use arrow::legacy::utils::CustomIterTools;
 use arrow::offset::Offsets;
-use polars_core::chunked_array::metadata::MetadataEnv;
 use polars_core::prelude::*;
 use polars_core::series::IsSorted;
 use polars_core::utils::{NoNull, _split_offsets};
@@ -66,23 +65,15 @@ impl PhysicalExpr for AggregationExpr {
         };
 
         match group_by {
-            GroupByMethod::Min => {
-                if MetadataEnv::experimental_enabled() {
-                    if let Some(sc) = s.get_metadata().and_then(|v| v.min_value()) {
-                        return Ok(sc.into_column(s.name().clone()));
-                    }
-                }
-
-                match s.is_sorted_flag() {
-                    IsSorted::Ascending | IsSorted::Descending => {
-                        s.min_reduce().map(|sc| sc.into_column(s.name().clone()))
-                    },
-                    IsSorted::Not => parallel_op_columns(
-                        |s| s.min_reduce().map(|sc| sc.into_column(s.name().clone())),
-                        s,
-                        allow_threading,
-                    ),
-                }
+            GroupByMethod::Min => match s.is_sorted_flag() {
+                IsSorted::Ascending | IsSorted::Descending => {
+                    s.min_reduce().map(|sc| sc.into_column(s.name().clone()))
+                },
+                IsSorted::Not => parallel_op_columns(
+                    |s| s.min_reduce().map(|sc| sc.into_column(s.name().clone())),
+                    s,
+                    allow_threading,
+                ),
             },
             #[cfg(feature = "propagate_nans")]
             GroupByMethod::NanMin => parallel_op_columns(
@@ -100,23 +91,15 @@ impl PhysicalExpr for AggregationExpr {
             GroupByMethod::NanMin => {
                 panic!("activate 'propagate_nans' feature")
             },
-            GroupByMethod::Max => {
-                if MetadataEnv::experimental_enabled() {
-                    if let Some(sc) = s.get_metadata().and_then(|v| v.max_value()) {
-                        return Ok(sc.into_column(s.name().clone()));
-                    }
-                }
-
-                match s.is_sorted_flag() {
-                    IsSorted::Ascending | IsSorted::Descending => {
-                        s.max_reduce().map(|sc| sc.into_column(s.name().clone()))
-                    },
-                    IsSorted::Not => parallel_op_columns(
-                        |s| s.max_reduce().map(|sc| sc.into_column(s.name().clone())),
-                        s,
-                        allow_threading,
-                    ),
-                }
+            GroupByMethod::Max => match s.is_sorted_flag() {
+                IsSorted::Ascending | IsSorted::Descending => {
+                    s.max_reduce().map(|sc| sc.into_column(s.name().clone()))
+                },
+                IsSorted::Not => parallel_op_columns(
+                    |s| s.max_reduce().map(|sc| sc.into_column(s.name().clone())),
+                    s,
+                    allow_threading,
+                ),
             },
             #[cfg(feature = "propagate_nans")]
             GroupByMethod::NanMax => parallel_op_columns(
@@ -152,18 +135,9 @@ impl PhysicalExpr for AggregationExpr {
                 allow_threading,
             ),
             GroupByMethod::Groups => unreachable!(),
-            GroupByMethod::NUnique => {
-                if MetadataEnv::experimental_enabled() {
-                    if let Some(count) = s.get_metadata().and_then(|v| v.distinct_count()) {
-                        let count = count + IdxSize::from(s.null_count() > 0);
-                        return Ok(IdxCa::from_slice(s.name().clone(), &[count]).into_column());
-                    }
-                }
-
-                s.n_unique().map(|count| {
-                    IdxCa::from_slice(s.name().clone(), &[count as IdxSize]).into_column()
-                })
-            },
+            GroupByMethod::NUnique => s.n_unique().map(|count| {
+                IdxCa::from_slice(s.name().clone(), &[count as IdxSize]).into_column()
+            }),
             GroupByMethod::Count { include_nulls } => {
                 let count = s.len() - s.null_count() * !include_nulls as usize;
 
@@ -177,24 +151,6 @@ impl PhysicalExpr for AggregationExpr {
                 .var_reduce(ddof)
                 .map(|sc| sc.into_column(s.name().clone())),
             GroupByMethod::Quantile(_, _) => unimplemented!(),
-            #[cfg(feature = "bitwise")]
-            GroupByMethod::Bitwise(f) => match f {
-                GroupByBitwiseMethod::And => parallel_op_columns(
-                    |s| s.and_reduce().map(|sc| sc.into_column(s.name().clone())),
-                    s,
-                    allow_threading,
-                ),
-                GroupByBitwiseMethod::Or => parallel_op_columns(
-                    |s| s.or_reduce().map(|sc| sc.into_column(s.name().clone())),
-                    s,
-                    allow_threading,
-                ),
-                GroupByBitwiseMethod::Xor => parallel_op_columns(
-                    |s| s.xor_reduce().map(|sc| sc.into_column(s.name().clone())),
-                    s,
-                    allow_threading,
-                ),
-            },
         }
     }
     #[allow(clippy::ptr_arg)]
@@ -429,16 +385,6 @@ impl PhysicalExpr for AggregationExpr {
                     // implemented explicitly in AggQuantile struct
                     unimplemented!()
                 },
-                #[cfg(feature = "bitwise")]
-                GroupByMethod::Bitwise(f) => {
-                    let (c, groups) = ac.get_final_aggregation();
-                    let agg_c = match f {
-                        GroupByBitwiseMethod::And => c.agg_and(&groups),
-                        GroupByBitwiseMethod::Or => c.agg_or(&groups),
-                        GroupByBitwiseMethod::Xor => c.agg_xor(&groups),
-                    };
-                    AggregatedScalar(agg_c.with_name(keep_name))
-                },
                 GroupByMethod::NanMin => {
                     #[cfg(feature = "propagate_nans")]
                     {
@@ -494,6 +440,10 @@ impl PhysicalExpr for AggregationExpr {
         } else {
             self.input.to_field(input_schema)
         }
+    }
+
+    fn collect_live_columns(&self, lv: &mut PlIndexSet<PlSmallStr>) {
+        self.input.collect_live_columns(lv);
     }
 
     fn is_scalar(&self) -> bool {
@@ -785,6 +735,11 @@ impl PhysicalExpr for AggQuantileExpr {
         ))
     }
 
+    fn collect_live_columns(&self, lv: &mut PlIndexSet<PlSmallStr>) {
+        self.input.collect_live_columns(lv);
+        self.quantile.collect_live_columns(lv);
+    }
+
     fn to_field(&self, input_schema: &Schema) -> PolarsResult<Field> {
         self.input.to_field(input_schema)
     }
@@ -836,5 +791,5 @@ where
         acc
     });
 
-    unsafe { f(out.cast_unchecked(dtype).unwrap()) }
+    unsafe { f(out.from_physical_unchecked(dtype).unwrap()) }
 }

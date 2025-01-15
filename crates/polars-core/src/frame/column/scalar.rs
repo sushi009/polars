@@ -108,13 +108,17 @@ impl ScalarColumn {
     ///
     /// If the [`ScalarColumn`] has `length=0` the resulting `Series` will also have `length=0`.
     pub fn as_single_value_series(&self) -> Series {
+        self.as_n_values_series(1)
+    }
+
+    /// Take the [`ScalarColumn`] as a series with a `n` values.
+    ///
+    /// If the [`ScalarColumn`] has `length=0` the resulting `Series` will also have `length=0`.
+    pub fn as_n_values_series(&self, n: usize) -> Series {
+        let length = usize::min(n, self.length);
         match self.materialized.get() {
-            Some(s) => s.head(Some(1)),
-            None => Self::_to_series(
-                self.name.clone(),
-                self.scalar.clone(),
-                usize::min(1, self.length),
-            ),
+            Some(s) => s.head(Some(length)),
+            None => Self::_to_series(self.name.clone(), self.scalar.clone(), length),
         }
     }
 
@@ -139,7 +143,11 @@ impl ScalarColumn {
     pub fn from_single_value_series(series: Series, length: usize) -> Self {
         debug_assert!(series.len() <= 1);
 
-        let value = series.get(0).map_or(AnyValue::Null, |av| av.into_static());
+        let value = if series.is_empty() {
+            AnyValue::Null
+        } else {
+            unsafe { series.get_unchecked(0) }.into_static()
+        };
         let value = Scalar::new(series.dtype().clone(), value);
         ScalarColumn::new(series.name().clone(), value, length)
     }
@@ -301,5 +309,73 @@ impl From<ScalarColumn> for Column {
     #[inline]
     fn from(value: ScalarColumn) -> Self {
         Self::Scalar(value)
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_impl {
+    use std::sync::OnceLock;
+
+    use polars_error::PolarsError;
+    use polars_utils::pl_str::PlSmallStr;
+
+    use super::ScalarColumn;
+    use crate::frame::{Scalar, Series};
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct SerializeWrap {
+        name: PlSmallStr,
+        /// Unit-length series for dispatching to IPC serialize
+        unit_series: Series,
+        length: usize,
+    }
+
+    impl From<&ScalarColumn> for SerializeWrap {
+        fn from(value: &ScalarColumn) -> Self {
+            Self {
+                name: value.name.clone(),
+                unit_series: value.scalar.clone().into_series(PlSmallStr::EMPTY),
+                length: value.length,
+            }
+        }
+    }
+
+    impl TryFrom<SerializeWrap> for ScalarColumn {
+        type Error = PolarsError;
+
+        fn try_from(value: SerializeWrap) -> Result<Self, Self::Error> {
+            let slf = Self {
+                name: value.name,
+                scalar: Scalar::new(
+                    value.unit_series.dtype().clone(),
+                    value.unit_series.get(0)?.into_static(),
+                ),
+                length: value.length,
+                materialized: OnceLock::new(),
+            };
+
+            Ok(slf)
+        }
+    }
+
+    impl serde::ser::Serialize for ScalarColumn {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            SerializeWrap::from(self).serialize(serializer)
+        }
+    }
+
+    impl<'de> serde::de::Deserialize<'de> for ScalarColumn {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            use serde::de::Error;
+
+            SerializeWrap::deserialize(deserializer)
+                .and_then(|x| ScalarColumn::try_from(x).map_err(D::Error::custom))
+        }
     }
 }

@@ -1,14 +1,13 @@
 use std::any::Any;
 
 use arrow::array::BinaryArray;
-use polars_core::chunked_array::ops::row_encode::_get_rows_encoded_compat_array;
 use polars_core::prelude::sort::_broadcast_bools;
 use polars_core::prelude::*;
 use polars_core::series::IsSorted;
 use polars_row::decode::decode_rows_from_binary;
-use polars_row::{RowEncodingCatOrder, RowEncodingOptions};
+use polars_row::{RowEncodingContext, RowEncodingOptions};
 
-use self::row_encode::get_row_encoding_dictionary;
+use self::row_encode::get_row_encoding_context;
 use super::*;
 use crate::operators::{
     DataChunk, FinalizedSink, PExecutionContext, Sink, SinkResult, Source, SourceResult,
@@ -52,7 +51,7 @@ fn finalize_dataframe(
     sort_dtypes: Option<&[ArrowDataType]>,
     rows: &mut Vec<&'static [u8]>,
     sort_opts: &[RowEncodingOptions],
-    sort_dicts: &[Option<RowEncodingCatOrder>],
+    sort_dicts: &[Option<RowEncodingContext>],
     schema: &Schema,
 ) {
     // pop the encoded sort column
@@ -85,7 +84,10 @@ fn finalize_dataframe(
 
     for (&sort_idx, arr) in sort_idx.iter().zip(arrays) {
         let (name, logical_dtype) = schema.get_at_index(sort_idx).unwrap();
-        assert_eq!(logical_dtype.to_physical(), DataType::from(arr.dtype()));
+        assert_eq!(
+            logical_dtype.to_physical(),
+            DataType::from_arrow_dtype(arr.dtype())
+        );
         let col = unsafe {
             Series::from_chunks_and_dtype_unchecked(name.clone(), vec![arr], logical_dtype)
         }
@@ -93,6 +95,7 @@ fn finalize_dataframe(
 
         // SAFETY: col has the same length as the df height because it was popped from df.
         unsafe { df.get_columns_mut() }.insert(sort_idx, col);
+        df.clear_schema();
     }
 
     // SAFETY: We just change the sorted flag.
@@ -120,7 +123,7 @@ pub struct SortSinkMultiple {
     sort_options: SortMultipleOptions,
     // Needed for encoding
     sort_opts: Arc<[RowEncodingOptions]>,
-    sort_dicts: Arc<[Option<RowEncodingCatOrder>]>,
+    sort_dicts: Arc<[Option<RowEncodingContext>]>,
     sort_dtypes: Option<Arc<[DataType]>>,
     // amortize allocs
     sort_column: Vec<ArrayRef>,
@@ -135,11 +138,11 @@ impl SortSinkMultiple {
     ) -> PolarsResult<Self> {
         let mut schema = (*output_schema).clone();
 
-        let sort_dicts = sort_idx
+        let sort_ctxts = sort_idx
             .iter()
             .map(|i| {
                 let (_, dtype) = schema.get_at_index(*i).unwrap();
-                get_row_encoding_dictionary(dtype)
+                get_row_encoding_context(dtype)
             })
             .collect::<Vec<_>>();
 
@@ -180,7 +183,7 @@ impl SortSinkMultiple {
             sort_options,
             sort_idx: Arc::from(sort_idx),
             sort_opts: Arc::from(sort_fields),
-            sort_dicts: Arc::from(sort_dicts),
+            sort_dicts: Arc::from(sort_ctxts),
             sort_dtypes,
             sort_column: vec![],
             output_schema,
@@ -193,8 +196,8 @@ impl SortSinkMultiple {
         self.sort_column.clear();
 
         for i in self.sort_idx.iter() {
-            let s = &df.get_columns()[*i];
-            let arr = _get_rows_encoded_compat_array(s.as_materialized_series())?;
+            let s = &df.get_columns()[*i].as_materialized_series();
+            let arr = s.to_physical_repr().rechunk().chunks()[0].to_boxed();
             self.sort_column.push(arr);
         }
 
@@ -215,6 +218,7 @@ impl SortSinkMultiple {
                 let _ = cols.remove(sort_idx - i);
             });
 
+        df.clear_schema();
         let name = PlSmallStr::from_static(POLARS_SORT_COLUMN);
         let column = if chunk.data.height() == 0 && chunk.data.width() > 0 {
             Column::new_empty(name, &DataType::BinaryOffset)
@@ -327,7 +331,7 @@ struct DropEncoded {
     sort_dtypes: Option<Vec<ArrowDataType>>,
     rows: Vec<&'static [u8]>,
     sort_opts: Arc<[RowEncodingOptions]>,
-    sort_dicts: Arc<[Option<RowEncodingCatOrder>]>,
+    sort_dicts: Arc<[Option<RowEncodingContext>]>,
     output_schema: SchemaRef,
 }
 

@@ -65,6 +65,7 @@ def test_dtype() -> None:
     ]
 
 
+@pytest.mark.usefixtures("test_global_and_local")
 def test_categorical() -> None:
     # https://github.com/pola-rs/polars/issues/2038
     df = pl.DataFrame(
@@ -839,3 +840,17 @@ def test_null_list_categorical_16405() -> None:
 
     expected = pl.DataFrame([None], schema={"result": pl.List(pl.Categorical)})
     assert_frame_equal(df, expected)
+
+
+def test_sort() -> None:
+    def tc(a: list[Any], b: list[Any]) -> None:
+        a_s = pl.Series("l", a, pl.List(pl.Int64))
+        b_s = pl.Series("l", b, pl.List(pl.Int64))
+
+        assert_series_equal(a_s.sort(), b_s)
+
+    tc([], [])
+    tc([[1]], [[1]])
+    tc([[1], []], [[], [1]])
+    tc([[2, 1]], [[2, 1]])
+    tc([[2, 1], [1, 2]], [[1, 2], [2, 1]])

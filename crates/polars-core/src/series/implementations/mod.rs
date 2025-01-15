@@ -26,11 +26,9 @@ mod time;
 
 use std::any::Any;
 use std::borrow::Cow;
-use std::sync::RwLockReadGuard;
 
 use super::*;
 use crate::chunked_array::comparison::*;
-use crate::chunked_array::metadata::MetadataTrait;
 use crate::chunked_array::ops::compare_inner::{
     IntoTotalEqInner, IntoTotalOrdInner, TotalEqInner, TotalOrdInner,
 };
@@ -80,11 +78,11 @@ macro_rules! impl_dyn_series {
                 self.0.ref_field().dtype()
             }
 
-            fn _get_flags(&self) -> MetadataFlags {
+            fn _get_flags(&self) -> StatisticsFlags {
                 self.0.get_flags()
             }
 
-            fn _set_flags(&mut self, flags: MetadataFlags) {
+            fn _set_flags(&mut self, flags: StatisticsFlags) {
                 self.0.set_flags(flags)
             }
 
@@ -220,14 +218,6 @@ macro_rules! impl_dyn_series {
                 ChunkRollApply::rolling_map(&self.0, _f, _options).map(|ca| ca.into_series())
             }
 
-            fn get_metadata(&self) -> Option<RwLockReadGuard<dyn MetadataTrait>> {
-                self.0.metadata_dyn()
-            }
-
-            fn boxed_metadata<'a>(&'a self) -> Option<Box<dyn MetadataTrait + 'a>> {
-                Some(self.0.boxed_metadata_dyn())
-            }
-
             fn rename(&mut self, name: PlSmallStr) {
                 self.0.rename(name);
             }
@@ -324,10 +314,6 @@ macro_rules! impl_dyn_series {
 
             fn cast(&self, dtype: &DataType, options: CastOptions) -> PolarsResult<Series> {
                 self.0.cast_with_options(dtype, options)
-            }
-
-            fn get(&self, index: usize) -> PolarsResult<AnyValue> {
-                self.0.get_any_value(index)
             }
 
             #[inline]
@@ -469,6 +455,8 @@ impl_dyn_series!(Int8Chunked, Int8Type);
 impl_dyn_series!(Int16Chunked, Int16Type);
 impl_dyn_series!(Int32Chunked, Int32Type);
 impl_dyn_series!(Int64Chunked, Int64Type);
+#[cfg(feature = "dtype-i128")]
+impl_dyn_series!(Int128Chunked, Int128Type);
 
 impl<T: PolarsNumericType> private::PrivateSeriesNumeric for SeriesWrap<ChunkedArray<T>> {
     fn bit_repr(&self) -> Option<BitRepr> {

@@ -501,14 +501,17 @@ impl SQLContext {
 
     fn execute_truncate_table(&mut self, stmt: &Statement) -> PolarsResult<LazyFrame> {
         if let Statement::Truncate {
-            table_name,
+            table_names,
             partitions,
             ..
         } = stmt
         {
             match partitions {
                 None => {
-                    let tbl = table_name.to_string();
+                    if table_names.len() != 1 {
+                        polars_bail!(SQLInterface: "TRUNCATE expects exactly one table name; found {}", table_names.len())
+                    }
+                    let tbl = table_names[0].to_string();
                     if let Some(lf) = self.table_map.get_mut(&tbl) {
                         *lf = DataFrame::empty_with_schema(
                             lf.schema_with_arenas(&mut self.lp_arena, &mut self.expr_arena)
@@ -718,7 +721,9 @@ impl SQLContext {
 
             // Final/selected cols, accounting for 'SELECT *' modifiers
             let mut retained_cols = Vec::with_capacity(projections.len());
+            let mut retained_names = Vec::with_capacity(projections.len());
             let have_order_by = query.order_by.is_some();
+            let mut all_literal = true;
 
             // Note: if there is an 'order by' then we project everything (original cols
             // and new projections) and *then* select the final cols; the retained cols
@@ -732,11 +737,13 @@ impl SQLContext {
                 if select_modifiers.matches_ilike(&name)
                     && !select_modifiers.exclude.contains(&name)
                 {
+                    all_literal &= expr_to_leaf_column_names_iter(p).next().is_none();
                     retained_cols.push(if have_order_by {
                         col(name.as_str())
                     } else {
                         p.clone()
                     });
+                    retained_names.push(col(name));
                 }
             }
 
@@ -752,7 +759,12 @@ impl SQLContext {
             }
 
             lf = self.process_order_by(lf, &query.order_by, Some(&retained_cols))?;
-            lf = lf.select(retained_cols);
+
+            if all_literal && !have_order_by {
+                lf = lf.with_columns(retained_cols).select(retained_names);
+            } else {
+                lf = lf.select(retained_cols);
+            }
 
             if !select_modifiers.rename.is_empty() {
                 lf = lf.rename(
@@ -971,7 +983,7 @@ impl SQLContext {
                 name, alias, args, ..
             } => {
                 if let Some(args) = args {
-                    return self.execute_table_function(name, alias, args);
+                    return self.execute_table_function(name, alias, &args.args);
                 }
                 let tbl_name = name.0.first().unwrap().value.as_str();
                 if let Some(lf) = self.get_table_from_current_scope(tbl_name) {
@@ -1105,7 +1117,7 @@ impl SQLContext {
         order_by: &Option<OrderBy>,
         selected: Option<&[Expr]>,
     ) -> PolarsResult<LazyFrame> {
-        if order_by.as_ref().map_or(true, |ob| ob.exprs.is_empty()) {
+        if order_by.as_ref().is_none_or(|ob| ob.exprs.is_empty()) {
             return Ok(lf);
         }
         let schema = self.get_frame_schema(&mut lf)?;

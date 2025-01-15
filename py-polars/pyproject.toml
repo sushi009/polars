@@ -29,6 +29,7 @@ classifiers = [
   "Programming Language :: Rust",
   "Topic :: Scientific/Engineering",
 ]
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://www.pola.rs/"
@@ -61,7 +62,7 @@ database = ["polars[adbc,connectorx,sqlalchemy]", "nest-asyncio"]
 fsspec = ["fsspec"]
 
 # Other I/O
-deltalake = ["deltalake >= 0.15.0"]
+deltalake = ["deltalake >= 0.19.0"]
 iceberg = ["pyiceberg >= 0.5.0"]
 
 # Other
@@ -70,7 +71,7 @@ cloudpickle = ["cloudpickle"]
 graph = ["matplotlib"]
 plot = ["altair >= 5.4.0"]
 style = ["great-tables >= 0.8.0"]
-timezone = ["backports.zoneinfo; python_version < '3.9'", "tzdata; platform_system == 'Windows'"]
+timezone = ["tzdata; platform_system == 'Windows'"]
 
 # GPU Engine
 gpu = ["cudf-polars-cu12"]
@@ -183,8 +184,6 @@ ignore = [
   "D104", # Missing docstring in public package
   "D105", # Missing docstring in magic method
   # ------------------------------------------------------------------
-  "ANN101", # Missing type annotation for `self` in method
-  "ANN102", # Missing type annotation for `cls` in classmethod
   "ANN401", # Dynamically typed expressions (Any) are disallowed
   "D401", # Relax NumPy docstring convention: first line should be imperative
   "E501", # Line length regulated by formatter
@@ -194,6 +193,7 @@ ignore = [
   "RUF005", # Consider expression instead of concatenation
   "SIM102", # Use a single `if` statement instead of nested `if` statements
   "SIM108", # Use ternary operator
+  "SIM114", # Combine `if` branches
   "TD002", # Missing author in TODO
   "TD003", # Missing issue link on the line following this TODO
   "TRY003", # Avoid specifying long messages outside the exception class
@@ -252,6 +252,9 @@ filterwarnings = [
   # TODO: Excel tests lead to unclosed file warnings
   # https://github.com/pola-rs/polars/issues/14466
   "ignore:unclosed file.*:ResourceWarning",
+  # TODO: Database tests lead to unclosed database warnings
+  # https://github.com/pola-rs/polars/issues/20296
+  "ignore:unclosed database.*:ResourceWarning",
   # Ignore invalid warnings when running earlier versions of SQLAlchemy (we
   # know they are invalid because our standard tests run the latest version)
   "ignore:Deprecated API features detected.*:DeprecationWarning",

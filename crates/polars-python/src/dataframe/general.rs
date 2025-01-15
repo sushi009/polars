@@ -3,16 +3,15 @@ use std::mem::ManuallyDrop;
 use either::Either;
 use polars::export::arrow::bitmap::MutableBitmap;
 use polars::prelude::*;
-use polars_core::frame::*;
 #[cfg(feature = "pivot")]
 use polars_lazy::frame::pivot::{pivot, pivot_stable};
-use polars_row::RowEncodingOptions;
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
 use pyo3::types::PyList;
+use pyo3::IntoPyObjectExt;
 
-use self::row_encode::get_row_encoding_dictionary;
+use self::row_encode::{_get_rows_encoded_ca, _get_rows_encoded_ca_unordered};
 use super::PyDataFrame;
 use crate::conversion::Wrap;
 use crate::error::PyPolarsErr;
@@ -21,6 +20,7 @@ use crate::map::dataframe::{
     apply_lambda_with_string_out_type,
 };
 use crate::prelude::strings_to_pl_smallstr;
+use crate::py_modules::polars;
 use crate::series::{PySeries, ToPySeries, ToSeries};
 use crate::{PyExpr, PyLazyFrame};
 
@@ -180,12 +180,12 @@ impl PyDataFrame {
     }
 
     /// Get datatypes
-    pub fn dtypes(&self, py: Python) -> PyObject {
+    pub fn dtypes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         let iter = self
             .df
             .iter()
-            .map(|s| Wrap(s.dtype().clone()).to_object(py));
-        PyList::new_bound(py, iter).to_object(py)
+            .map(|s| Wrap(s.dtype().clone()).into_pyobject(py).unwrap());
+        PyList::new(py, iter)
     }
 
     pub fn n_chunks(&self) -> usize {
@@ -402,7 +402,7 @@ impl PyDataFrame {
 
         let function = move |df: DataFrame| {
             Python::with_gil(|py| {
-                let pypolars = PyModule::import_bound(py, "polars").unwrap();
+                let pypolars = polars(py).bind(py);
                 let pydf = PyDataFrame::new(df);
                 let python_df_wrapper =
                     pypolars.getattr("wrap_df").unwrap().call1((pydf,)).unwrap();
@@ -410,7 +410,7 @@ impl PyDataFrame {
                 // Call the lambda and get a python-side DataFrame wrapper.
                 let result_df_wrapper = match lambda.call1(py, (python_df_wrapper,)) {
                     Ok(pyobj) => pyobj,
-                    Err(e) => panic!("UDF failed: {}", e.value_bound(py)),
+                    Err(e) => panic!("UDF failed: {}", e.value(py)),
                 };
                 let py_pydf = result_df_wrapper.getattr(py, "_df").expect(
                     "Could not get DataFrame attribute '_df'. Make sure that you return a DataFrame object.",
@@ -514,44 +514,6 @@ impl PyDataFrame {
         self.df.clone().lazy().into()
     }
 
-    pub fn max_horizontal(&self, py: Python) -> PyResult<Option<PySeries>> {
-        let s = py
-            .allow_threads(|| self.df.max_horizontal())
-            .map_err(PyPolarsErr::from)?;
-        Ok(s.map(|s| s.take_materialized_series().into()))
-    }
-
-    pub fn min_horizontal(&self, py: Python) -> PyResult<Option<PySeries>> {
-        let s = py
-            .allow_threads(|| self.df.min_horizontal())
-            .map_err(PyPolarsErr::from)?;
-        Ok(s.map(|s| s.take_materialized_series().into()))
-    }
-
-    pub fn sum_horizontal(&self, py: Python, ignore_nulls: bool) -> PyResult<Option<PySeries>> {
-        let null_strategy = if ignore_nulls {
-            NullStrategy::Ignore
-        } else {
-            NullStrategy::Propagate
-        };
-        let s = py
-            .allow_threads(|| self.df.sum_horizontal(null_strategy))
-            .map_err(PyPolarsErr::from)?;
-        Ok(s.map(|s| s.into()))
-    }
-
-    pub fn mean_horizontal(&self, py: Python, ignore_nulls: bool) -> PyResult<Option<PySeries>> {
-        let null_strategy = if ignore_nulls {
-            NullStrategy::Ignore
-        } else {
-            NullStrategy::Propagate
-        };
-        let s = py
-            .allow_threads(|| self.df.mean_horizontal(null_strategy))
-            .map_err(PyPolarsErr::from)?;
-        Ok(s.map(|s| s.into()))
-    }
-
     #[pyo3(signature = (columns, separator, drop_first=false))]
     pub fn to_dummies(
         &self,
@@ -593,20 +555,20 @@ impl PyDataFrame {
             use apply_lambda_with_primitive_out_type as apply;
             #[rustfmt::skip]
             let out = match output_type.map(|dt| dt.0) {
-                Some(DataType::Int32) => apply::<Int32Type>(df, py, lambda, 0, None).into_series(),
-                Some(DataType::Int64) => apply::<Int64Type>(df, py, lambda, 0, None).into_series(),
-                Some(DataType::UInt32) => apply::<UInt32Type>(df, py, lambda, 0, None).into_series(),
-                Some(DataType::UInt64) => apply::<UInt64Type>(df, py, lambda, 0, None).into_series(),
-                Some(DataType::Float32) => apply::<Float32Type>(df, py, lambda, 0, None).into_series(),
-                Some(DataType::Float64) => apply::<Float64Type>(df, py, lambda, 0, None).into_series(),
-                Some(DataType::Date) => apply::<Int32Type>(df, py, lambda, 0, None).into_date().into_series(),
-                Some(DataType::Datetime(tu, tz)) => apply::<Int64Type>(df, py, lambda, 0, None).into_datetime(tu, tz).into_series(),
-                Some(DataType::Boolean) => apply_lambda_with_bool_out_type(df, py, lambda, 0, None).into_series(),
-                Some(DataType::String) => apply_lambda_with_string_out_type(df, py, lambda, 0, None).into_series(),
+                Some(DataType::Int32) => apply::<Int32Type>(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::Int64) => apply::<Int64Type>(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::UInt32) => apply::<UInt32Type>(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::UInt64) => apply::<UInt64Type>(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::Float32) => apply::<Float32Type>(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::Float64) => apply::<Float64Type>(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::Date) => apply::<Int32Type>(df, py, lambda, 0, None)?.into_date().into_series(),
+                Some(DataType::Datetime(tu, tz)) => apply::<Int64Type>(df, py, lambda, 0, None)?.into_datetime(tu, tz).into_series(),
+                Some(DataType::Boolean) => apply_lambda_with_bool_out_type(df, py, lambda, 0, None)?.into_series(),
+                Some(DataType::String) => apply_lambda_with_string_out_type(df, py, lambda, 0, None)?.into_series(),
                 _ => return apply_lambda_unknown(df, py, lambda, inference_size),
             };
 
-            Ok((PySeries::from(out).into_py(py), false))
+            Ok((PySeries::from(out).into_py_any(py)?, false))
         })
     }
 
@@ -721,45 +683,25 @@ impl PyDataFrame {
         opts: Vec<(bool, bool, bool)>,
     ) -> PyResult<PySeries> {
         py.allow_threads(|| {
-            let mut df = self.df.clone();
-            df.rechunk_mut();
+            let name = PlSmallStr::from_static("row_enc");
+            let is_unordered = opts.first().is_some_and(|(_, _, v)| *v);
 
-            let dicts = df
-                .get_columns()
-                .iter()
-                .map(|c| get_row_encoding_dictionary(c.dtype()))
-                .collect::<Vec<_>>();
+            let ca = if is_unordered {
+                _get_rows_encoded_ca_unordered(name, self.df.get_columns())
+            } else {
+                let descending = opts.iter().map(|(v, _, _)| *v).collect::<Vec<_>>();
+                let nulls_last = opts.iter().map(|(_, v, _)| *v).collect::<Vec<_>>();
 
-            assert_eq!(df.width(), opts.len());
-
-            let chunks = df
-                .get_columns()
-                .iter()
-                .map(|c| c.as_materialized_series().to_physical_repr().chunks()[0].to_boxed())
-                .collect::<Vec<_>>();
-            let opts = opts
-                .into_iter()
-                .map(|(descending, nulls_last, no_order)| {
-                    let mut opt = RowEncodingOptions::default();
-
-                    opt.set(RowEncodingOptions::DESCENDING, descending);
-                    opt.set(RowEncodingOptions::NULLS_LAST, nulls_last);
-                    opt.set(RowEncodingOptions::NO_ORDER, no_order);
-
-                    opt
-                })
-                .collect::<Vec<_>>();
-
-            let rows = polars_row::convert_columns(df.height(), &chunks, &opts, &dicts);
-
-            Ok(unsafe {
-                Series::from_chunks_and_dtype_unchecked(
-                    PlSmallStr::from_static("row_enc"),
-                    vec![rows.into_array().boxed()],
-                    &DataType::BinaryOffset,
+                _get_rows_encoded_ca(
+                    name,
+                    self.df.get_columns(),
+                    descending.as_slice(),
+                    nulls_last.as_slice(),
                 )
             }
-            .into())
+            .map_err(PyPolarsErr::from)?;
+
+            Ok(ca.into_series().into())
         })
     }
 }
