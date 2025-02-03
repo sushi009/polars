@@ -179,31 +179,20 @@ fn no_more_bitpacked_values() -> ParquetError {
 }
 
 #[inline(always)]
-fn verify_dict_indices(indices: &[u32; 32], dict_size: usize) -> ParquetResult<()> {
+fn verify_dict_indices(indices: &[u32], dict_size: usize) -> ParquetResult<()> {
+    debug_assert!(dict_size <= u32::MAX as usize);
+    let dict_size = dict_size as u32;
+
     let mut is_valid = true;
     for &idx in indices {
-        is_valid &= (idx as usize) < dict_size;
+        is_valid &= idx < dict_size;
     }
 
     if is_valid {
-        return Ok(());
+        Ok(())
+    } else {
+        Err(oob_dict_idx())
     }
-
-    Err(oob_dict_idx())
-}
-
-#[inline(always)]
-fn verify_dict_indices_slice(indices: &[u32], dict_size: usize) -> ParquetResult<()> {
-    let mut is_valid = true;
-    for &idx in indices {
-        is_valid &= (idx as usize) < dict_size;
-    }
-
-    if is_valid {
-        return Ok(());
-    }
-
-    Err(oob_dict_idx())
 }
 
 /// Skip over entire chunks in a [`HybridRleDecoder`] as long as all skipped chunks do not include

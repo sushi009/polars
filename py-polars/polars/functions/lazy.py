@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any, Callable, overload
 import polars._reexport as pl
 import polars.functions as F
 from polars._utils.async_ import _AioDataFrameResult, _GeventDataFrameResult
-from polars._utils.deprecation import deprecate_function, issue_deprecation_warning
+from polars._utils.deprecation import (
+    deprecate_function,
+    deprecate_renamed_parameter,
+    issue_deprecation_warning,
+)
 from polars._utils.parse import (
     parse_into_expression,
     parse_into_list_of_expressions,
@@ -1697,17 +1701,17 @@ def collect_all(
     for lf in lazy_frames:
         type_check = _type_check
         ldf = lf._ldf.optimization_toggle(
-            type_coercion,
-            type_check,
-            predicate_pushdown,
-            projection_pushdown,
-            simplify_expression,
-            slice_pushdown,
-            comm_subplan_elim,
-            comm_subexpr_elim,
-            cluster_with_columns,
-            collapse_joins,
-            streaming,
+            type_coercion=type_coercion,
+            type_check=type_check,
+            predicate_pushdown=predicate_pushdown,
+            projection_pushdown=projection_pushdown,
+            simplify_expression=simplify_expression,
+            slice_pushdown=slice_pushdown,
+            comm_subplan_elim=comm_subplan_elim,
+            comm_subexpr_elim=comm_subexpr_elim,
+            cluster_with_columns=cluster_with_columns,
+            collapse_joins=collapse_joins,
+            streaming=streaming,
             _eager=False,
             _check_order=_check_order,
             new_streaming=False,
@@ -1869,17 +1873,17 @@ def collect_all_async(
     for lf in lazy_frames:
         type_check = _type_check
         ldf = lf._ldf.optimization_toggle(
-            type_coercion,
-            type_check,
-            predicate_pushdown,
-            projection_pushdown,
-            simplify_expression,
-            slice_pushdown,
-            comm_subplan_elim,
-            comm_subexpr_elim,
-            cluster_with_columns,
-            collapse_joins,
-            streaming,
+            type_coercion=type_coercion,
+            type_check=type_check,
+            predicate_pushdown=predicate_pushdown,
+            projection_pushdown=projection_pushdown,
+            simplify_expression=simplify_expression,
+            slice_pushdown=slice_pushdown,
+            comm_subplan_elim=comm_subplan_elim,
+            comm_subexpr_elim=comm_subexpr_elim,
+            cluster_with_columns=cluster_with_columns,
+            collapse_joins=collapse_joins,
+            streaming=streaming,
             _eager=False,
             _check_order=_check_order,
             new_streaming=False,
@@ -2149,22 +2153,18 @@ def from_epoch(
         raise ValueError(msg)
 
 
-@unstable()
+@deprecate_renamed_parameter("min_periods", "min_samples", version="1.21.0")
 def rolling_cov(
     a: str | Expr,
     b: str | Expr,
     *,
     window_size: int,
-    min_periods: int | None = None,
+    min_samples: int | None = None,
     ddof: int = 1,
 ) -> Expr:
     """
     Compute the rolling covariance between two columns/ expressions.
 
-    .. warning::
-        This functionality is considered **unstable**. It may be changed
-        at any point without it being considered a breaking change.
-
     The window at a given row includes the row itself and the
     `window_size - 1` elements before it.
 
@@ -2176,39 +2176,35 @@ def rolling_cov(
         Column name or Expression.
     window_size
         The length of the window.
-    min_periods
+    min_samples
         The number of values in the window that should be non-null before computing
         a result. If None, it will be set equal to window size.
     ddof
         Delta degrees of freedom. The divisor used in calculations
         is `N - ddof`, where `N` represents the number of elements.
     """
-    if min_periods is None:
-        min_periods = window_size
+    if min_samples is None:
+        min_samples = window_size
     if isinstance(a, str):
         a = F.col(a)
     if isinstance(b, str):
         b = F.col(b)
     return wrap_expr(
-        plr.rolling_cov(a._pyexpr, b._pyexpr, window_size, min_periods, ddof)
+        plr.rolling_cov(a._pyexpr, b._pyexpr, window_size, min_samples, ddof)
     )
 
 
-@unstable()
+@deprecate_renamed_parameter("min_periods", "min_samples", version="1.21.0")
 def rolling_corr(
     a: str | Expr,
     b: str | Expr,
     *,
     window_size: int,
-    min_periods: int | None = None,
+    min_samples: int | None = None,
     ddof: int = 1,
 ) -> Expr:
     """
     Compute the rolling correlation between two columns/ expressions.
-
-    .. warning::
-        This functionality is considered **unstable**. It may be changed
-        at any point without it being considered a breaking change.
 
     The window at a given row includes the row itself and the
     `window_size - 1` elements before it.
@@ -2221,21 +2217,21 @@ def rolling_corr(
         Column name or Expression.
     window_size
         The length of the window.
-    min_periods
+    min_samples
         The number of values in the window that should be non-null before computing
         a result. If None, it will be set equal to window size.
     ddof
         Delta degrees of freedom. The divisor used in calculations
         is `N - ddof`, where `N` represents the number of elements.
     """
-    if min_periods is None:
-        min_periods = window_size
+    if min_samples is None:
+        min_samples = window_size
     if isinstance(a, str):
         a = F.col(a)
     if isinstance(b, str):
         b = F.col(b)
     return wrap_expr(
-        plr.rolling_corr(a._pyexpr, b._pyexpr, window_size, min_periods, ddof)
+        plr.rolling_corr(a._pyexpr, b._pyexpr, window_size, min_samples, ddof)
     )
 
 

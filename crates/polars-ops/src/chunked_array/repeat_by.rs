@@ -14,12 +14,12 @@ fn check_lengths(length_srs: usize, length_by: usize) -> PolarsResult<()> {
 }
 
 fn new_by(by: &IdxCa, len: usize) -> IdxCa {
-    IdxCa::new(
-        PlSmallStr::EMPTY,
-        std::iter::repeat(by.get(0).unwrap())
-            .take(len)
-            .collect::<Vec<IdxSize>>(),
-    )
+    if let Some(x) = by.get(0) {
+        let values = std::iter::repeat(x).take(len).collect::<Vec<IdxSize>>();
+        IdxCa::new(PlSmallStr::EMPTY, values)
+    } else {
+        IdxCa::full_null(PlSmallStr::EMPTY, len)
+    }
 }
 
 fn repeat_by_primitive<T>(ca: &ChunkedArray<T>, by: &IdxCa) -> PolarsResult<ListChunked>
@@ -122,7 +122,7 @@ pub fn repeat_by(s: &Series, by: &IdxCa) -> PolarsResult<ListChunked> {
                 .and_then(|ca| ca.apply_to_inner(&|s| unsafe { s.cast_unchecked(&String) }))
         },
         Binary => repeat_by_binary(s_phys.binary().unwrap(), by),
-        dt if dt.is_numeric() => {
+        dt if dt.is_primitive_numeric() => {
             with_match_physical_numeric_polars_type!(dt, |$T| {
                 let ca: &ChunkedArray<$T> = s_phys.as_ref().as_ref().as_ref();
                 repeat_by_primitive(ca, by)

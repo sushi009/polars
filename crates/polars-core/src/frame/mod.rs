@@ -20,6 +20,7 @@ use crate::{HEAD_DEFAULT_LENGTH, TAIL_DEFAULT_LENGTH};
 #[cfg(feature = "dataframe_arithmetic")]
 mod arithmetic;
 mod chunks;
+pub use chunks::chunk_df_for_writing;
 pub mod column;
 pub mod explode;
 mod from;
@@ -1181,6 +1182,22 @@ impl DataFrame {
         self.height += other.height;
     }
 
+    /// Concatenate a [`DataFrame`] to this [`DataFrame`]
+    ///
+    /// If many `vstack` operations are done, it is recommended to call [`DataFrame::align_chunks_par`].
+    ///
+    /// # Panics
+    /// Panics if the schema's don't match.
+    pub fn vstack_mut_owned_unchecked(&mut self, other: DataFrame) {
+        self.columns
+            .iter_mut()
+            .zip(other.columns)
+            .for_each(|(left, right)| {
+                left.append_owned(right).expect("should not fail");
+            });
+        self.height += other.height;
+    }
+
     /// Extend the memory backed by this [`DataFrame`] with the values from `other`.
     ///
     /// Different from [`vstack`](Self::vstack) which adds the chunks from `other` to the chunks of this [`DataFrame`]
@@ -2077,14 +2094,9 @@ impl DataFrame {
             set_sorted(&mut out);
             return Ok(out);
         }
+
         if let Some((0, k)) = slice {
             if k < self.len() {
-                let desc = if sort_options.descending.len() == 1 {
-                    sort_options.descending[0]
-                } else {
-                    false
-                };
-                sort_options.limit = Some((k as IdxSize, desc));
                 return self.bottom_k_impl(k, by_column, sort_options);
             }
         }
@@ -3038,7 +3050,7 @@ impl DataFrame {
     #[cfg(feature = "algorithm_group_by")]
     pub fn is_unique(&self) -> PolarsResult<BooleanChunked> {
         let gb = self.group_by(self.get_column_names_owned())?;
-        let groups = gb.take_groups();
+        let groups = gb.get_groups();
         Ok(is_unique_helper(
             groups,
             self.height() as IdxSize,
@@ -3063,7 +3075,7 @@ impl DataFrame {
     #[cfg(feature = "algorithm_group_by")]
     pub fn is_duplicated(&self) -> PolarsResult<BooleanChunked> {
         let gb = self.group_by(self.get_column_names_owned())?;
-        let groups = gb.take_groups();
+        let groups = gb.get_groups();
         Ok(is_unique_helper(
             groups,
             self.height() as IdxSize,
@@ -3173,8 +3185,8 @@ impl DataFrame {
         // don't parallelize this
         // there is a lot of parallelization in take and this may easily SO
         POOL.install(|| {
-            match groups {
-                GroupsProxy::Idx(idx) => {
+            match groups.as_ref() {
+                GroupsType::Idx(idx) => {
                     // Rechunk as the gather may rechunk for every group #17562.
                     let mut df = df.clone();
                     df.as_single_chunk_par();
@@ -3183,14 +3195,14 @@ impl DataFrame {
                         .map(|(_, group)| {
                             // groups are in bounds
                             unsafe {
-                                df._take_unchecked_slice_sorted(&group, false, IsSorted::Ascending)
+                                df._take_unchecked_slice_sorted(group, false, IsSorted::Ascending)
                             }
                         })
                         .collect())
                 },
-                GroupsProxy::Slice { groups, .. } => Ok(groups
+                GroupsType::Slice { groups, .. } => Ok(groups
                     .into_par_iter()
-                    .map(|[first, len]| df.slice(first as i64, len as usize))
+                    .map(|[first, len]| df.slice(*first as i64, *len as usize))
                     .collect()),
             }
         })
@@ -3577,42 +3589,5 @@ mod test {
 
         assert_eq!(df.get_column_names(), &["a", "b", "c"]);
         Ok(())
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn test_deserialize_height_validation_8751() {
-        // Construct an invalid directly from the inner fields as the `new_unchecked_*` functions
-        // have debug assertions
-
-        use polars_utils::pl_serialize;
-
-        let df = DataFrame {
-            height: 2,
-            columns: vec![
-                Int64Chunked::full("a".into(), 1, 2).into_column(),
-                Int64Chunked::full("b".into(), 1, 1).into_column(),
-            ],
-            cached_schema: OnceLock::new(),
-        };
-
-        // We rely on the fact that the serialization doesn't check the heights of all columns
-        let serialized = serde_json::to_string(&df).unwrap();
-        let err = serde_json::from_str::<DataFrame>(&serialized).unwrap_err();
-
-        assert!(err.to_string().contains(
-            "successful parse invalid data: lengths don't match: could not create a new DataFrame:",
-        ));
-
-        let serialized = pl_serialize::SerializeOptions::default()
-            .serialize_to_bytes(&df)
-            .unwrap();
-        let err = pl_serialize::SerializeOptions::default()
-            .deserialize_from_reader::<DataFrame, _>(serialized.as_slice())
-            .unwrap_err();
-
-        assert!(err.to_string().contains(
-            "successful parse invalid data: lengths don't match: could not create a new DataFrame:",
-        ));
     }
 }

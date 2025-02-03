@@ -96,7 +96,7 @@ class CatNameSpace:
     @unstable()
     def uses_lexical_ordering(self) -> bool:
         """
-        Return whether or not the series uses lexical ordering.
+        Indicate whether the Series uses lexical ordering.
 
         .. warning::
             This functionality is considered **unstable**. It may be changed
@@ -182,6 +182,60 @@ class CatNameSpace:
             4
             3
             2
+            null
+        ]
+        """
+
+    def starts_with(self, prefix: str) -> Series:
+        """
+        Check if string representations of values start with a substring.
+
+        Parameters
+        ----------
+        prefix
+            Prefix substring.
+
+        See Also
+        --------
+        contains : Check if the string repr contains a substring that matches a pattern.
+        ends_with : Check if string repr ends with a substring.
+
+        Examples
+        --------
+        >>> s = pl.Series("fruits", ["apple", "mango", None], dtype=pl.Categorical)
+        >>> s.cat.starts_with("app")
+        shape: (3,)
+        Series: 'fruits' [bool]
+        [
+            true
+            false
+            null
+        ]
+        """
+
+    def ends_with(self, suffix: str) -> Series:
+        """
+        Check if string representations of values end with a substring.
+
+        Parameters
+        ----------
+        suffix
+            Suffix substring.
+
+        See Also
+        --------
+        contains : Check if the string repr contains a substring that matches a pattern.
+        starts_with : Check if string repr starts with a substring.
+
+        Examples
+        --------
+        >>> s = pl.Series("fruits", ["apple", "mango", None], dtype=pl.Categorical)
+        >>> s.cat.ends_with("go")
+        shape: (3,)
+        Series: 'fruits' [bool]
+        [
+            false
+            true
             null
         ]
         """

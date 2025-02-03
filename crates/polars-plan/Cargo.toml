@@ -156,9 +156,11 @@ array_to_struct = ["polars-ops/array_to_struct"]
 row_hash = ["polars-core/row_hash", "polars-ops/hash"]
 reinterpret = ["polars-core/reinterpret", "polars-ops/reinterpret"]
 string_pad = ["polars-ops/string_pad"]
+string_normalize = ["polars-ops/string_normalize"]
 string_reverse = ["polars-ops/string_reverse"]
 string_to_integer = ["polars-ops/string_to_integer"]
 arg_where = []
+index_of = ["polars-ops/index_of"]
 search_sorted = ["polars-ops/search_sorted"]
 merge_sorted = ["polars-ops/merge_sorted"]
 meta = []
@@ -263,6 +265,7 @@ features = [
   "find_many",
   "string_encoding",
   "ipc",
+  "index_of",
   "search_sorted",
   "unique_counts",
   "dtype-u8",

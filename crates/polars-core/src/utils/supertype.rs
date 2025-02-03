@@ -418,7 +418,7 @@ pub fn get_supertype_with_options(
                     // Keep unknown
                     dynam if dt.is_null() => Some(Unknown(*dynam)),
                     // Find integers sizes
-                    UnknownKind::Int(v) if dt.is_numeric() => {
+                    UnknownKind::Int(v) if dt.is_primitive_numeric() => {
                         // Both dyn int
                         if let Unknown(UnknownKind::Int(v_other)) = dt {
                             // Take the maximum value to ensure we bubble up the required minimal size.
@@ -451,7 +451,7 @@ pub fn get_supertype_with_options(
                 super_type_structs(fields_a, fields_b)
             }
             #[cfg(feature = "dtype-struct")]
-            (Struct(fields_a), rhs) if rhs.is_numeric() => {
+            (Struct(fields_a), rhs) if rhs.is_primitive_numeric() => {
                 let mut new_fields = Vec::with_capacity(fields_a.len());
                 for a in fields_a {
                     let st = get_supertype(&a.dtype, rhs)?;
@@ -537,17 +537,24 @@ fn super_type_structs(fields_a: &[Field], fields_b: &[Field]) -> Option<DataType
 pub fn materialize_dyn_int(v: i128) -> AnyValue<'static> {
     // Try to get the "smallest" fitting value.
     // TODO! next breaking go to true smallest.
-    match i32::try_from(v).ok() {
-        Some(v) => AnyValue::Int32(v),
-        None => match i64::try_from(v).ok() {
-            Some(v) => AnyValue::Int64(v),
-            None => match u64::try_from(v).ok() {
-                Some(v) => AnyValue::UInt64(v),
-                None => AnyValue::Null,
-            },
-        },
+    if let Ok(v) = i32::try_from(v) {
+        return AnyValue::Int32(v);
     }
+    if let Ok(v) = i64::try_from(v) {
+        return AnyValue::Int64(v);
+    }
+    if let Ok(v) = u64::try_from(v) {
+        return AnyValue::UInt64(v);
+    }
+    #[cfg(feature = "dtype-i128")]
+    {
+        AnyValue::Int128(v)
+    }
+
+    #[cfg(not(feature = "dtype-i128"))]
+    AnyValue::Null
 }
+
 fn materialize_dyn_int_pos(v: i128) -> AnyValue<'static> {
     // Try to get the "smallest" fitting value.
     // TODO! next breaking go to true smallest.

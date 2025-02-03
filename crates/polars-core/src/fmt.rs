@@ -22,8 +22,6 @@ use comfy_table::modifiers::*;
 use comfy_table::presets::*;
 #[cfg(any(feature = "fmt", feature = "fmt_no_tty"))]
 use comfy_table::*;
-#[cfg(feature = "dtype-duration")]
-use itoa;
 use num_traits::{Num, NumCast};
 use polars_error::feature_gated;
 
@@ -785,7 +783,7 @@ impl Display for DataFrame {
                 for (column_index, column) in table.column_iter_mut().enumerate() {
                     let dtype = fields[column_index].dtype();
                     let mut preset = str_preset.as_str();
-                    if dtype.is_numeric() || dtype.is_decimal() {
+                    if dtype.is_primitive_numeric() || dtype.is_decimal() {
                         preset = num_preset.as_str();
                     }
                     match preset {
@@ -1295,11 +1293,9 @@ impl Series {
 #[inline]
 #[cfg(feature = "dtype-decimal")]
 fn fmt_decimal(f: &mut Formatter<'_>, v: i128, scale: usize) -> fmt::Result {
-    use arrow::compute::decimal::format_decimal;
-
+    let mut fmt_buf = arrow::compute::decimal::DecimalFmtBuffer::new();
     let trim_zeros = get_trim_decimal_zeros();
-    let repr = format_decimal(v, scale, trim_zeros);
-    f.write_str(fmt_float_string(repr.as_str()).as_str())
+    f.write_str(fmt_float_string(fmt_buf.format(v, scale, trim_zeros)).as_str())
 }
 
 #[cfg(all(

@@ -408,7 +408,11 @@ class DataFrame:
                 data, schema=schema, schema_overrides=schema_overrides, strict=strict
             )
 
-        elif not isinstance(data, Sized) and isinstance(data, (Generator, Iterable)):
+        elif (
+            not hasattr(data, "__arrow_c_stream__")
+            and not isinstance(data, Sized)
+            and isinstance(data, (Generator, Iterable))
+        ):
             self._df = iterable_to_pydf(
                 data,
                 schema=schema,
@@ -1154,11 +1158,11 @@ class DataFrame:
     def __le__(self, other: Any) -> DataFrame:
         return self._comp(other, "lt_eq")
 
-    def __getstate__(self) -> list[Series]:
-        return self.get_columns()
+    def __getstate__(self) -> bytes:
+        return self.serialize()
 
-    def __setstate__(self, state: list[Series]) -> None:
-        self._df = DataFrame(state)._df
+    def __setstate__(self, state: bytes) -> None:
+        self._df = self.deserialize(BytesIO(state))._df
 
     def __mul__(self, other: DataFrame | Series | int | float) -> DataFrame:
         if isinstance(other, DataFrame):
@@ -2635,8 +2639,8 @@ class DataFrame:
         ...     }
         ... )
         >>> bytes = df.serialize()
-        >>> bytes  # doctest: +ELLIPSIS
-        b'x\x01bb@\x80\x15...'
+        >>> type(bytes)
+        <class 'bytes'>
 
         The bytes can later be deserialized back into a DataFrame.
 
@@ -3106,8 +3110,8 @@ class DataFrame:
         Parameters
         ----------
         workbook : {str, Workbook}
-            String name or path of the workbook to create, BytesIO object to write
-            into, or an open `xlsxwriter.Workbook` object that has not been closed.
+            String name or path of the workbook to create, BytesIO object, file opened
+            in binary-mode, or an `xlsxwriter.Workbook` object that has not been closed.
             If None, writes to a `dataframe.xlsx` workbook in the working directory.
         worksheet : {str, Worksheet}
             Name of target worksheet or an `xlsxwriter.Worksheet` object (in which
@@ -3473,6 +3477,12 @@ class DataFrame:
         wb, ws, can_close = _xl_setup_workbook(workbook, worksheet)
         df, is_empty = self, not len(self)
 
+        # The _xl_setup_table_columns function in the below section
+        # converts all collection types (e.g. List, Struct, Object) to strings
+        # Hence, we need to store the original schema so that it can be used
+        # when selecting columns using column selectors based on datatypes
+        df_original = df.clear()
+
         # setup table format/columns
         fmt_cache = _XLFormatCache(wb)
         column_formats = column_formats or {}
@@ -3540,13 +3550,25 @@ class DataFrame:
         elif isinstance(hidden_columns, str):
             hidden = {hidden_columns}
         else:
-            hidden = set(_expand_selectors(df, hidden_columns))
+            hidden = set(_expand_selectors(df_original, hidden_columns))
+
+        # Autofit section needs to be present above column_widths section
+        # to ensure that parameters provided in the column_widths section
+        # are not overwritten by autofit
+        #
+        # table/rows all written; apply (optional) autofit
+        if autofit and not is_empty:
+            xlv = xlsxwriter.__version__
+            if parse_version(xlv) < (3, 0, 8):
+                msg = f"`autofit=True` requires xlsxwriter 3.0.8 or higher, found {xlv}"
+                raise ModuleUpgradeRequiredError(msg)
+            ws.autofit()
 
         if isinstance(column_widths, int):
             column_widths = dict.fromkeys(df.columns, column_widths)
         else:
             column_widths = _expand_selector_dicts(  # type: ignore[assignment]
-                df, column_widths, expand_keys=True, expand_values=False
+                df_original, column_widths, expand_keys=True, expand_values=False
             )
         column_widths = _unpack_multi_column_dict(column_widths or {})  # type: ignore[assignment]
 
@@ -3587,14 +3609,6 @@ class DataFrame:
             elif isinstance(row_heights, dict):
                 for idx, height in _unpack_multi_column_dict(row_heights).items():  # type: ignore[assignment]
                     ws.set_row_pixels(idx, height)
-
-        # table/rows all written; apply (optional) autofit
-        if autofit and not is_empty:
-            xlv = xlsxwriter.__version__
-            if parse_version(xlv) < (3, 0, 8):
-                msg = f"`autofit=True` requires xlsxwriter 3.0.8 or higher, found {xlv}"
-                raise ModuleUpgradeRequiredError(msg)
-            ws.autofit()
 
         if freeze_panes:
             if isinstance(freeze_panes, str):
@@ -4285,6 +4299,7 @@ class DataFrame:
         mode: Literal["error", "append", "overwrite", "ignore"] = ...,
         overwrite_schema: bool | None = ...,
         storage_options: dict[str, str] | None = ...,
+        credential_provider: CredentialProviderFunction | Literal["auto"] | None = ...,
         delta_write_options: dict[str, Any] | None = ...,
     ) -> None: ...
 
@@ -4296,6 +4311,7 @@ class DataFrame:
         mode: Literal["merge"],
         overwrite_schema: bool | None = ...,
         storage_options: dict[str, str] | None = ...,
+        credential_provider: CredentialProviderFunction | Literal["auto"] | None = ...,
         delta_merge_options: dict[str, Any],
     ) -> deltalake.table.TableMerger: ...
 
@@ -4306,6 +4322,9 @@ class DataFrame:
         mode: Literal["error", "append", "overwrite", "ignore", "merge"] = "error",
         overwrite_schema: bool | None = None,
         storage_options: dict[str, str] | None = None,
+        credential_provider: CredentialProviderFunction
+        | Literal["auto"]
+        | None = "auto",
         delta_write_options: dict[str, Any] | None = None,
         delta_merge_options: dict[str, Any] | None = None,
     ) -> deltalake.table.TableMerger | None:
@@ -4338,6 +4357,14 @@ class DataFrame:
             - See a list of supported storage options for S3 `here <https://docs.rs/object_store/latest/object_store/aws/enum.AmazonS3ConfigKey.html#variants>`__.
             - See a list of supported storage options for GCS `here <https://docs.rs/object_store/latest/object_store/gcp/enum.GoogleConfigKey.html#variants>`__.
             - See a list of supported storage options for Azure `here <https://docs.rs/object_store/latest/object_store/azure/enum.AzureConfigKey.html#variants>`__.
+        credential_provider
+            Provide a function that can be called to provide cloud storage
+            credentials. The function is expected to return a dictionary of
+            credential keys along with an optional credential expiry time.
+
+            .. warning::
+                This functionality is considered **unstable**. It may be changed
+                at any point without it being considered a breaking change.
         delta_write_options
             Additional keyword arguments while writing a Delta lake Table.
             See a list of supported write options `here <https://delta-io.github.io/delta-rs/api/delta_writer/#deltalake.write_deltalake>`__.
@@ -4462,6 +4489,8 @@ class DataFrame:
 
         _check_if_delta_available()
 
+        credential_provider_creds = {}
+
         from deltalake import DeltaTable, write_deltalake
         from deltalake import __version__ as delta_version
         from packaging.version import Version
@@ -4475,6 +4504,34 @@ class DataFrame:
             data = self.to_arrow(compat_level=CompatLevel.newest())
         else:
             data = self.to_arrow()
+
+        from polars.io.cloud.credential_provider import (
+            _get_credentials_from_provider_expiry_aware,
+            _maybe_init_credential_provider,
+        )
+
+        if not isinstance(target, DeltaTable):
+            credential_provider = _maybe_init_credential_provider(
+                credential_provider, target, storage_options, "write_delta"
+            )
+        elif credential_provider is not None and credential_provider != "auto":
+            msg = "cannot use credential_provider when passing a DeltaTable object"
+            raise ValueError(msg)
+        else:
+            credential_provider = None
+
+        if credential_provider is not None:
+            credential_provider_creds = _get_credentials_from_provider_expiry_aware(
+                credential_provider
+            )
+
+        # We aren't calling into polars-native write functions so we just update
+        # the storage_options here.
+        storage_options = (
+            {**(storage_options or {}), **credential_provider_creds}
+            if storage_options is not None or credential_provider is not None
+            else None
+        )
 
         if mode == "merge":
             if delta_merge_options is None:
@@ -6933,6 +6990,8 @@ class DataFrame:
         allow_parallel: bool = True,
         force_parallel: bool = False,
         coalesce: bool = True,
+        allow_exact_matches: bool = True,
+        check_sortedness: bool = True,
     ) -> DataFrame:
         """
         Perform an asof join.
@@ -7018,6 +7077,17 @@ class DataFrame:
 
             Note that joining on any other expressions than `col`
             will turn off coalescing.
+        allow_exact_matches
+            Whether exact matches are valid join predicates.
+
+            - If True, allow matching with the same ``on`` value
+                (i.e. less-than-or-equal-to / greater-than-or-equal-to)
+            - If False, don't match the same ``on`` value
+                (i.e., strictly less-than / strictly greater-than).
+        check_sortedness
+            Check the sortedness of the asof keys. If the keys are not sorted Polars
+            will error, or in case of 'by' argument raise a warning. This might become
+            a hard error in the future.
 
         Examples
         --------
@@ -7250,6 +7320,8 @@ class DataFrame:
                 allow_parallel=allow_parallel,
                 force_parallel=force_parallel,
                 coalesce=coalesce,
+                allow_exact_matches=allow_exact_matches,
+                check_sortedness=check_sortedness,
             )
             .collect(_eager=True)
         )
@@ -7276,7 +7348,8 @@ class DataFrame:
         other
             DataFrame to join with.
         on
-            Name(s) of the join columns in both DataFrames.
+            Name(s) of the join columns in both DataFrames. If set, `left_on` and
+            `right_on` should be None. This should not be specified if `how="cross"`.
         how : {'inner', 'left', 'right', 'full', 'semi', 'anti', 'cross'}
             Join strategy.
 
@@ -7392,7 +7465,20 @@ class DataFrame:
         │ 3    ┆ 8.0  ┆ c    ┆ null  ┆ null      │
         └──────┴──────┴──────┴───────┴───────────┘
 
-        >>> df.join(other_df, on="ham", how="left", coalesce=True)
+        >>> df.join(other_df, on="ham", how="full", coalesce=True)
+        shape: (4, 4)
+        ┌──────┬──────┬─────┬───────┐
+        │ foo  ┆ bar  ┆ ham ┆ apple │
+        │ ---  ┆ ---  ┆ --- ┆ ---   │
+        │ i64  ┆ f64  ┆ str ┆ str   │
+        ╞══════╪══════╪═════╪═══════╡
+        │ 1    ┆ 6.0  ┆ a   ┆ x     │
+        │ 2    ┆ 7.0  ┆ b   ┆ y     │
+        │ null ┆ null ┆ d   ┆ z     │
+        │ 3    ┆ 8.0  ┆ c   ┆ null  │
+        └──────┴──────┴─────┴───────┘
+
+        >>> df.join(other_df, on="ham", how="left")
         shape: (3, 4)
         ┌─────┬─────┬─────┬───────┐
         │ foo ┆ bar ┆ ham ┆ apple │
@@ -7424,6 +7510,24 @@ class DataFrame:
         ╞═════╪═════╪═════╡
         │ 3   ┆ 8.0 ┆ c   │
         └─────┴─────┴─────┘
+
+        >>> df.join(other_df, how="cross")
+        shape: (9, 5)
+        ┌─────┬─────┬─────┬───────┬───────────┐
+        │ foo ┆ bar ┆ ham ┆ apple ┆ ham_right │
+        │ --- ┆ --- ┆ --- ┆ ---   ┆ ---       │
+        │ i64 ┆ f64 ┆ str ┆ str   ┆ str       │
+        ╞═════╪═════╪═════╪═══════╪═══════════╡
+        │ 1   ┆ 6.0 ┆ a   ┆ x     ┆ a         │
+        │ 1   ┆ 6.0 ┆ a   ┆ y     ┆ b         │
+        │ 1   ┆ 6.0 ┆ a   ┆ z     ┆ d         │
+        │ 2   ┆ 7.0 ┆ b   ┆ x     ┆ a         │
+        │ 2   ┆ 7.0 ┆ b   ┆ y     ┆ b         │
+        │ 2   ┆ 7.0 ┆ b   ┆ z     ┆ d         │
+        │ 3   ┆ 8.0 ┆ c   ┆ x     ┆ a         │
+        │ 3   ┆ 8.0 ┆ c   ┆ y     ┆ b         │
+        │ 3   ┆ 8.0 ┆ c   ┆ z     ┆ d         │
+        └─────┴─────┴─────┴───────┴───────────┘
 
         Notes
         -----
@@ -8714,9 +8818,9 @@ class DataFrame:
 
         return self._from_pydf(self._df.unpivot(on, index, value_name, variable_name))
 
-    @unstable()
     def unstack(
         self,
+        *,
         step: int,
         how: UnstackDirection = "vertical",
         columns: ColumnNameOrSelector | Sequence[ColumnNameOrSelector] | None = None,
@@ -8724,10 +8828,6 @@ class DataFrame:
     ) -> DataFrame:
         """
         Unstack a long table to a wide form without doing an aggregation.
-
-        .. warning::
-            This functionality is considered **unstable**. It may be changed
-            at any point without it being considered a breaking change.
 
         This can be much faster than a pivot, because it can skip the grouping phase.
 
@@ -10356,7 +10456,7 @@ class DataFrame:
         Apply a horizontal reduction on a DataFrame.
 
         This can be used to effectively determine aggregations on a row level, and can
-        be applied to any DataType that can be supercasted (casted to a similar parent
+        be applied to any DataType that can be supercast (cast to a similar parent
         type).
 
         An example of the supercast rules when applying an arithmetic operation on two
@@ -11220,8 +11320,7 @@ class DataFrame:
         │ bar    ┆ 2   ┆ b   ┆ null ┆ [3]       ┆ womp  │
         └────────┴─────┴─────┴──────┴───────────┴───────┘
         """
-        columns = _expand_selectors(self, columns, *more_columns)
-        return self._from_pydf(self._df.unnest(columns))
+        return self.lazy().unnest(columns, *more_columns).collect(_eager=True)
 
     def corr(self, **kwargs: Any) -> DataFrame:
         """

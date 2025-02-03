@@ -47,14 +47,17 @@ impl Arrow2Arrow for UnionArray {
 
         // Map from type id to array index
         let map = match &dtype {
-            ArrowDataType::Union(_, Some(ids), _) => {
+            ArrowDataType::Union(inner) => {
                 let mut map = [0; 127];
+                let ids = inner
+                    .ids
+                    .as_ref()
+                    .expect("must be Union type with Some(ids)");
                 for (pos, &id) in ids.iter().enumerate() {
                     map[id as usize] = pos;
                 }
                 Some(map)
             },
-            ArrowDataType::Union(_, None, _) => None,
             _ => unreachable!("must be Union type"),
         };
 

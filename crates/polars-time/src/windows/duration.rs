@@ -6,12 +6,11 @@ use std::ops::{Mul, Neg};
 use arrow::legacy::kernels::{Ambiguous, NonExistent};
 use arrow::legacy::time_zone::Tz;
 use arrow::temporal_conversions::{
-    timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, MILLISECONDS,
-    NANOSECONDS,
+    timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, MICROSECONDS,
+    MILLISECONDS, NANOSECONDS,
 };
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use polars_core::datatypes::DataType;
-use polars_core::export::arrow::temporal_conversions::MICROSECONDS;
 use polars_core::prelude::{
     datetime_to_timestamp_ms, datetime_to_timestamp_ns, datetime_to_timestamp_us, polars_bail,
     PolarsResult,
@@ -1055,7 +1054,7 @@ pub fn ensure_duration_matches_dtype(
                 InvalidOperation: "`{}` duration may not be a parsed integer (i.e. use '2d', not '2i') when working with a temporal column", variable_name);
         },
         _ => {
-            polars_bail!(InvalidOperation: "unsupported data type: {} for `{}`, expected UInt64, UInt32, Int64, Int32, Datetime, Date, Duration, or Time", dtype, variable_name)
+            polars_bail!(InvalidOperation: "unsupported data type: {} for temporal/index column, expected UInt64, UInt32, Int64, Int32, Datetime, Date, Duration, or Time", dtype)
         },
     }
     Ok(())

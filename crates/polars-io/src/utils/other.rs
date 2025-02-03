@@ -1,13 +1,9 @@
-#[cfg(any(feature = "ipc_streaming", feature = "parquet"))]
-use std::borrow::Cow;
 use std::io::Read;
 #[cfg(target_os = "emscripten")]
 use std::io::{Seek, SeekFrom};
 
 use once_cell::sync::Lazy;
 use polars_core::prelude::*;
-#[cfg(any(feature = "ipc_streaming", feature = "parquet"))]
-use polars_core::utils::{accumulate_dataframes_vertical_unchecked, split_df_as_ref};
 use polars_utils::mmap::{MMapSemaphore, MemSlice};
 use regex::{Regex, RegexBuilder};
 
@@ -206,73 +202,39 @@ pub fn materialize_projection(
     }
 }
 
-/// Split DataFrame into chunks in preparation for writing. The chunks have a
-/// maximum number of rows per chunk to ensure reasonable memory efficiency when
-/// reading the resulting file, and a minimum size per chunk to ensure
-/// reasonable performance when writing.
-#[cfg(any(feature = "ipc_streaming", feature = "parquet"))]
-pub(crate) fn chunk_df_for_writing(
-    df: &mut DataFrame,
-    row_group_size: usize,
-) -> PolarsResult<Cow<DataFrame>> {
-    // ensures all chunks are aligned.
-    df.align_chunks_par();
+/// Utility for decoding JSON that adds the response value to the error message if decoding fails.
+/// This makes it much easier to debug errors from parsing network responses.
+#[cfg(feature = "cloud")]
+pub fn decode_json_response<T>(bytes: &[u8]) -> PolarsResult<T>
+where
+    T: for<'de> serde::de::Deserialize<'de>,
+{
+    use polars_core::config;
+    use polars_error::to_compute_err;
 
-    // Accumulate many small chunks to the row group size.
-    // See: #16403
-    if !df.get_columns().is_empty()
-        && df.get_columns()[0]
-            .as_materialized_series()
-            .chunk_lengths()
-            .take(5)
-            .all(|len| len < row_group_size)
-    {
-        fn finish(scratch: &mut Vec<DataFrame>, new_chunks: &mut Vec<DataFrame>) {
-            let mut new = accumulate_dataframes_vertical_unchecked(scratch.drain(..));
-            new.as_single_chunk_par();
-            new_chunks.push(new);
-        }
+    serde_json::from_slice(bytes)
+        .map_err(to_compute_err)
+        .map_err(|e| {
+            e.wrap_msg(|e| {
+                let maybe_truncated = if config::verbose() {
+                    bytes
+                } else {
+                    // Clamp the output on non-verbose
+                    &bytes[..bytes.len().min(4096)]
+                };
 
-        let mut new_chunks = Vec::with_capacity(df.first_col_n_chunks()); // upper limit;
-        let mut scratch = vec![];
-        let mut remaining = row_group_size;
-
-        for df in df.split_chunks() {
-            remaining = remaining.saturating_sub(df.height());
-            scratch.push(df);
-
-            if remaining == 0 {
-                remaining = row_group_size;
-                finish(&mut scratch, &mut new_chunks);
-            }
-        }
-        if !scratch.is_empty() {
-            finish(&mut scratch, &mut new_chunks);
-        }
-        return Ok(Cow::Owned(accumulate_dataframes_vertical_unchecked(
-            new_chunks,
-        )));
-    }
-
-    let n_splits = df.height() / row_group_size;
-    let result = if n_splits > 0 {
-        let mut splits = split_df_as_ref(df, n_splits, false);
-
-        for df in splits.iter_mut() {
-            // If the chunks are small enough, writing many small chunks
-            // leads to slow writing performance, so in that case we
-            // merge them.
-            let n_chunks = df.first_col_n_chunks();
-            if n_chunks > 1 && (df.estimated_size() / n_chunks < 128 * 1024) {
-                df.as_single_chunk_par();
-            }
-        }
-
-        Cow::Owned(accumulate_dataframes_vertical_unchecked(splits))
-    } else {
-        Cow::Borrowed(df)
-    };
-    Ok(result)
+                format!(
+                    "error decoding response: {}, response value: {}{}",
+                    e,
+                    String::from_utf8_lossy(maybe_truncated),
+                    if maybe_truncated.len() != bytes.len() {
+                        " ...(set POLARS_VERBOSE=1 to see full response)"
+                    } else {
+                        ""
+                    }
+                )
+            })
+        })
 }
 
 #[cfg(test)]

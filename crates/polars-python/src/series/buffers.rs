@@ -12,12 +12,11 @@
 //! operations on String Series will convert from/to such buffers. This
 //! conversion requires data to be copied.
 
-use polars::export::arrow;
-use polars::export::arrow::array::{Array, BooleanArray, PrimitiveArray, Utf8Array};
-use polars::export::arrow::bitmap::Bitmap;
-use polars::export::arrow::buffer::Buffer;
-use polars::export::arrow::offset::OffsetsBuffer;
-use polars::export::arrow::types::NativeType;
+use arrow::array::{Array, BooleanArray, PrimitiveArray, Utf8Array};
+use arrow::bitmap::Bitmap;
+use arrow::buffer::Buffer;
+use arrow::offset::OffsetsBuffer;
+use arrow::types::NativeType;
 use polars::prelude::*;
 use polars_core::{with_match_physical_numeric_polars_type, with_match_physical_numeric_type};
 use pyo3::exceptions::PyTypeError;
@@ -75,10 +74,12 @@ impl PySeries {
                     length: len,
                 })
             },
-            dt if dt.is_numeric() => Ok(with_match_physical_numeric_polars_type!(dt, |$T| {
-                let ca: &ChunkedArray<$T> = s.as_ref().as_ref().as_ref();
-                BufferInfo { pointer: get_pointer(ca), offset: 0, length: ca.len() }
-            })),
+            dt if dt.is_primitive_numeric() => {
+                Ok(with_match_physical_numeric_polars_type!(dt, |$T| {
+                    let ca: &ChunkedArray<$T> = s.as_ref().as_ref().as_ref();
+                    BufferInfo { pointer: get_pointer(ca), offset: 0, length: ca.len() }
+                }))
+            },
             dt => {
                 let msg = format!("`_get_buffer_info` not implemented for non-physical type {dt}; try to select a buffer first");
                 Err(PyTypeError::new_err(msg))
@@ -90,7 +91,7 @@ impl PySeries {
     fn _get_buffers(&self, py: Python) -> PyResult<(Self, Option<Self>, Option<Self>)> {
         let s = &self.series;
         py.allow_threads(|| match s.dtype().to_physical() {
-            dt if dt.is_numeric() => get_buffers_from_primitive(s),
+            dt if dt.is_primitive_numeric() => get_buffers_from_primitive(s),
             DataType::Boolean => get_buffers_from_primitive(s),
             DataType::String => get_buffers_from_string(s),
             dt => {
@@ -134,7 +135,7 @@ fn get_buffers_from_string(s: &Series) -> PyResult<(PySeries, Option<PySeries>, 
     let arr_binview = ca.downcast_iter().next().unwrap();
 
     // This is not zero-copy
-    let arr_utf8 = polars_core::export::cast::utf8view_to_utf8(arr_binview);
+    let arr_utf8 = polars_compute::cast::utf8view_to_utf8(arr_binview);
 
     let values = get_string_bytes(&arr_utf8)?;
     let validity = get_bitmap(&s);
@@ -191,7 +192,7 @@ impl PySeries {
         let owner = owner.to_owned().unbind();
 
         let arr_boxed = match dtype {
-            dt if dt.is_numeric() => {
+            dt if dt.is_primitive_numeric() => {
                 with_match_physical_numeric_type!(dt, |$T|  unsafe {
                     from_buffer_impl::<$T>(pointer, offset, length, owner)
                 })
@@ -294,7 +295,7 @@ impl PySeries {
         };
 
         let s = match dtype.to_physical() {
-            dt if dt.is_numeric() => {
+            dt if dt.is_primitive_numeric() => {
                 let values = data.into_iter().next().unwrap();
                 with_match_physical_numeric_polars_type!(dt, |$T| {
                     let values_buffer = series_to_buffer::<$T>(values);

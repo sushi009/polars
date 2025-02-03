@@ -28,6 +28,7 @@ from polars.datatypes import (
     Int64,
     Null,
     String,
+    Time,
     UInt8,
 )
 from polars.datatypes.group import FLOAT_DTYPES, INTEGER_DTYPES, NUMERIC_DTYPES
@@ -52,7 +53,9 @@ def _sources(source: FileSource) -> tuple[Any, bool]:
     read_multiple_workbooks = True
     sources: list[Any] = []
 
-    if not isinstance(source, Sequence) or isinstance(source, str):
+    if isinstance(source, memoryview):
+        source = source.tobytes()
+    if not isinstance(source, Sequence) or isinstance(source, (bytes, str)):
         read_multiple_workbooks = False
         source = [source]  # type: ignore[assignment]
 
@@ -60,7 +63,10 @@ def _sources(source: FileSource) -> tuple[Any, bool]:
         if isinstance(src, (str, os.PathLike)) and not Path(src).exists():
             src = os.path.expanduser(str(src))  # noqa: PTH111
             sources.extend(files := glob(src, recursive=True))  # noqa: PTH207
-            read_multiple_workbooks = bool(files)
+            if not files:
+                msg = f"no workbook found at path {src!r}"
+                raise FileNotFoundError(msg)
+            read_multiple_workbooks = True
         else:
             if isinstance(src, os.PathLike):
                 src = str(src)
@@ -74,7 +80,7 @@ def _standardize_duplicates(s: str) -> str:
     return re.sub(r"_duplicated_(\d+)", repl=r"\1", string=s)
 
 
-def _unpack_sheet_results(
+def _unpack_read_results(
     frames: list[pl.DataFrame] | list[dict[str, pl.DataFrame]],
     *,
     read_multiple_workbooks: bool,
@@ -105,6 +111,7 @@ def read_excel(
     *,
     sheet_id: None = ...,
     sheet_name: str,
+    table_name: str | None = ...,
     engine: ExcelSpreadsheetEngine = ...,
     engine_options: dict[str, Any] | None = ...,
     read_options: dict[str, Any] | None = ...,
@@ -125,6 +132,7 @@ def read_excel(
     *,
     sheet_id: None = ...,
     sheet_name: None = ...,
+    table_name: str | None = ...,
     engine: ExcelSpreadsheetEngine = ...,
     engine_options: dict[str, Any] | None = ...,
     has_header: bool = ...,
@@ -145,6 +153,7 @@ def read_excel(
     *,
     sheet_id: int,
     sheet_name: str,
+    table_name: str | None = ...,
     engine: ExcelSpreadsheetEngine = ...,
     engine_options: dict[str, Any] | None = ...,
     read_options: dict[str, Any] | None = ...,
@@ -167,6 +176,7 @@ def read_excel(
     *,
     sheet_id: Literal[0] | Sequence[int],
     sheet_name: None = ...,
+    table_name: str | None = ...,
     engine: ExcelSpreadsheetEngine = ...,
     engine_options: dict[str, Any] | None = ...,
     read_options: dict[str, Any] | None = ...,
@@ -187,6 +197,7 @@ def read_excel(
     *,
     sheet_id: int,
     sheet_name: None = ...,
+    table_name: str | None = ...,
     engine: ExcelSpreadsheetEngine = ...,
     engine_options: dict[str, Any] | None = ...,
     read_options: dict[str, Any] | None = ...,
@@ -207,6 +218,7 @@ def read_excel(
     *,
     sheet_id: None,
     sheet_name: list[str] | tuple[str],
+    table_name: str | None = ...,
     engine: ExcelSpreadsheetEngine = ...,
     engine_options: dict[str, Any] | None = ...,
     read_options: dict[str, Any] | None = ...,
@@ -228,6 +240,7 @@ def read_excel(
     *,
     sheet_id: int | Sequence[int] | None = None,
     sheet_name: str | list[str] | tuple[str] | None = None,
+    table_name: str | None = None,
     engine: ExcelSpreadsheetEngine = "calamine",
     engine_options: dict[str, Any] | None = None,
     read_options: dict[str, Any] | None = None,
@@ -243,14 +256,12 @@ def read_excel(
     """
     Read Excel spreadsheet data into a DataFrame.
 
+    .. versionadded:: 1.20
+        Support loading data from named table objects with `table_name` parameter.
     .. versionadded:: 1.18
         Support loading data from a list (or glob pattern) of multiple workbooks.
     .. versionchanged:: 1.0
         Default engine is now "calamine" (was "xlsx2csv").
-    .. versionadded:: 0.20.6
-        Added "calamine" fastexcel engine for Excel Workbooks (.xlsx, .xlsb, .xls).
-    .. versionadded:: 0.19.3
-        Added "openpyxl" engine, and added `schema_overrides` parameter.
 
     Parameters
     ----------
@@ -266,34 +277,40 @@ def read_excel(
     sheet_name
         Sheet name(s) to convert; cannot be used in conjunction with `sheet_id`. If
         more than one is given then a `{sheetname:frame,}` dict is returned.
-    engine : {'calamine', 'xlsx2csv', 'openpyxl'}
+    table_name
+        Name of a specific table to read; note that table names are unique across
+        the workbook, so additionally specifying a sheet id or name is optional;
+        if one of those parameters *is* specified, an error will be raised if
+        the named table is not found in that particular sheet.
+    engine : {'calamine', 'openpyxl', 'xlsx2csv'}
         Library used to parse the spreadsheet file; defaults to "calamine".
 
         * "calamine": this engine can be used for reading all major types of Excel
-          Workbook (`.xlsx`, `.xlsb`, `.xls`) and is *dramatically* faster than the
-          other options, using the `fastexcel` module to bind the Calamine parser.
+          Workbook (`.xlsx`, `.xlsb`, `.xls`) and is dramatically faster than the
+          other options, using the `fastexcel` module to bind the Rust-based Calamine
+          parser.
+        * "openpyxl": this engine is significantly slower than both `calamine` and
+          `xlsx2csv`, but can provide a useful fallback if you are otherwise unable
+          to read data from your workbook.
         * "xlsx2csv": converts the data to an in-memory CSV before using the native
-          polars `read_csv` method to parse the result. You can pass `engine_options`
-          and `read_options` to refine the conversion.
-        * "openpyxl": this engine is significantly slower than `xlsx2csv` but supports
-          additional automatic type inference; potentially useful if you are otherwise
-          unable to parse your sheet with the `xlsx2csv` engine in conjunction with the
-          `schema_overrides` parameter.
+          polars `read_csv` method to parse the result.
     engine_options
         Additional options passed to the underlying engine's primary parsing
         constructor (given below), if supported:
 
         * "calamine": n/a (can only provide `read_options`)
-        * "xlsx2csv": `Xlsx2csv`
-        * "openpyxl": `load_workbook`
+        * "openpyxl": `load_workbook <https://openpyxl.readthedocs.io/en/stable/api/openpyxl.reader.excel.html#openpyxl.reader.excel.load_workbook>`_
+        * "xlsx2csv": `Xlsx2csv <https://github.com/dilshod/xlsx2csv/blob/f35734aa453d65102198a77e7b8cd04928e6b3a2/xlsx2csv.py#L157>`_
     read_options
         Options passed to the underlying engine method that reads the sheet data.
         Where supported, this allows for additional control over parsing. The
         specific read methods associated with each engine are:
 
-        * "calamine": `ExcelReader.load_sheet_by_name`
-        * "xlsx2csv": `pl.read_csv`
+        * "calamine": `load_sheet_by_name <https://fastexcel.toucantoco.dev/fastexcel.html#ExcelReader.load_sheet_by_name>`_
+          (or `load_table <https://fastexcel.toucantoco.dev/fastexcel.html#ExcelReader.load_table>`_
+          if using the `table_name` parameter).
         * "openpyxl": n/a (can only provide `engine_options`)
+        * "xlsx2csv": see :meth:`read_csv`
     has_header
         Indicate if the first row of the table data is a header or not. If False,
         column names will be autogenerated in the following format: `column_x`, with
@@ -380,6 +397,7 @@ def read_excel(
             src,
             sheet_id=sheet_id,
             sheet_name=sheet_name,
+            table_name=table_name,
             engine=engine,
             engine_options=engine_options,
             read_options=read_options,
@@ -394,7 +412,7 @@ def read_excel(
         )
         for src in sources
     ]
-    return _unpack_sheet_results(
+    return _unpack_read_results(
         frames=frames,
         read_multiple_workbooks=read_multiple_workbooks,
     )
@@ -592,6 +610,7 @@ def read_ods(
             src,
             sheet_id=sheet_id,
             sheet_name=sheet_name,
+            table_name=None,
             engine="calamine",
             engine_options={},
             read_options=None,
@@ -606,7 +625,7 @@ def read_ods(
         )
         for src in sources
     ]
-    return _unpack_sheet_results(
+    return _unpack_read_results(
         frames=frames,
         read_multiple_workbooks=read_multiple_workbooks,
     )
@@ -617,6 +636,7 @@ def _read_spreadsheet(
     *,
     sheet_id: int | Sequence[int] | None,
     sheet_name: str | Sequence[str] | None,
+    table_name: str | None,
     engine: ExcelSpreadsheetEngine,
     engine_options: dict[str, Any] | None = None,
     read_options: dict[str, Any] | None = None,
@@ -642,7 +662,7 @@ def _read_spreadsheet(
         infer_schema_length=infer_schema_length,
     )
     engine_options = (engine_options or {}).copy()
-    schema_overrides = pl.Schema(schema_overrides or {})
+    schema_overrides = dict(schema_overrides or {})
 
     # establish the reading function, parser, and available worksheets
     reader_fn, parser, worksheets = _initialise_spreadsheet_parser(
@@ -651,7 +671,7 @@ def _read_spreadsheet(
     try:
         # parse data from the indicated sheet(s)
         sheet_names, return_multiple_sheets = _get_sheet_names(
-            sheet_id, sheet_name, worksheets
+            sheet_id, sheet_name, table_name, worksheets
         )
         parsed_sheets = {
             name: reader_fn(
@@ -661,6 +681,7 @@ def _read_spreadsheet(
                 read_options=read_options,
                 raise_if_empty=raise_if_empty,
                 columns=columns,
+                table_name=table_name,
                 drop_empty_rows=drop_empty_rows,
                 drop_empty_cols=drop_empty_cols,
             )
@@ -696,6 +717,7 @@ def _get_read_options(
 ) -> dict[str, Any]:
     """Normalise top-level parameters to engine-specific 'read_options' dict."""
     read_options = (read_options or {}).copy()
+
     if engine == "calamine":
         if ("use_columns" in read_options) and columns:
             msg = 'cannot specify both `columns` and `read_options["use_columns"]`'
@@ -742,6 +764,7 @@ def _get_read_options(
 def _get_sheet_names(
     sheet_id: int | Sequence[int] | None,
     sheet_name: str | Sequence[str] | None,
+    table_name: str | None,
     worksheets: list[dict[str, Any]],
 ) -> tuple[list[str], bool]:
     """Establish sheets to read; indicate if we are returning a dict frames."""
@@ -751,7 +774,8 @@ def _get_sheet_names(
 
     sheet_names = []
     if sheet_id is None and sheet_name is None:
-        sheet_names.append(worksheets[0]["name"])
+        name = None if table_name else worksheets[0]["name"]
+        sheet_names.append(name)
         return_multiple_sheets = False
     elif sheet_id == 0:
         sheet_names.extend(ws["name"] for ws in worksheets)
@@ -779,11 +803,12 @@ def _get_sheet_names(
                 if (sheet_id == 0 or ws["index"] in ids or ws["name"] in names)
             }
             for idx in ids:
-                if (name := sheet_names_by_idx.get(idx)) is None:  # type: ignore[assignment]
+                if (name := sheet_names_by_idx.get(idx)) is None:
                     msg = f"no matching sheet found when `sheet_id` is {idx}"
                     raise ValueError(msg)
                 sheet_names.append(name)
-    return sheet_names, return_multiple_sheets
+
+    return sheet_names, return_multiple_sheets  # type: ignore[return-value]
 
 
 def _initialise_spreadsheet_parser(
@@ -807,12 +832,18 @@ def _initialise_spreadsheet_parser(
         }.items():
             engine_options.setdefault(option, value)
 
+        if isinstance(source, bytes):
+            source = BytesIO(source)
+
         parser = xlsx2csv.Xlsx2csv(source, **engine_options)
         sheets = parser.workbook.sheets
         return _read_spreadsheet_xlsx2csv, parser, sheets
 
     elif engine == "openpyxl":
         openpyxl = import_optional("openpyxl")
+        if isinstance(source, bytes):
+            source = BytesIO(source)
+
         parser = openpyxl.load_workbook(source, data_only=True, **engine_options)
         sheets = [{"index": i + 1, "name": ws.title} for i, ws in enumerate(parser)]
         return _read_spreadsheet_openpyxl, parser, sheets
@@ -830,7 +861,7 @@ def _initialise_spreadsheet_parser(
             raise ModuleUpgradeRequiredError(msg)
 
         if reading_bytesio:
-            source = source.getbuffer().tobytes()  # type: ignore[union-attr]
+            source = source.getvalue()  # type: ignore[union-attr]
         elif isinstance(source, (BufferedReader, TextIOWrapper)):
             if "b" not in source.mode:
                 msg = f"file {source.name!r} must be opened in binary mode"
@@ -955,82 +986,6 @@ def _reorder_columns(
     return df
 
 
-def _read_spreadsheet_openpyxl(
-    parser: Any,
-    *,
-    sheet_name: str | None,
-    read_options: dict[str, Any],
-    schema_overrides: SchemaDict | None,
-    columns: Sequence[int] | Sequence[str] | None,
-    drop_empty_rows: bool,
-    drop_empty_cols: bool,
-    raise_if_empty: bool,
-) -> pl.DataFrame:
-    """Use the 'openpyxl' library to read data from the given worksheet."""
-    infer_schema_length = read_options.pop("infer_schema_length", None)
-    has_header = read_options.pop("has_header", True)
-    no_inference = infer_schema_length == 0
-    ws = parser[sheet_name]
-
-    # prefer detection of actual table objects; otherwise read
-    # data in the used worksheet range, dropping null columns
-    header: list[str | None] = []
-    if tables := getattr(ws, "tables", None):
-        table = next(iter(tables.values()))
-        rows = list(ws[table.ref])
-        if not rows:
-            return _empty_frame(raise_if_empty)
-        if has_header:
-            header.extend(cell.value for cell in rows.pop(0))
-        else:
-            header.extend(f"column_{n}" for n in range(1, len(rows[0]) + 1))
-        if table.totalsRowCount:
-            rows = rows[: -table.totalsRowCount]
-        rows_iter = rows
-    else:
-        if not has_header:
-            if not (rows_iter := list(ws.iter_rows())):
-                return _empty_frame(raise_if_empty)
-            n_cols = len(rows_iter[0])
-            header = [f"column_{n}" for n in range(1, n_cols + 1)]
-        else:
-            rows_iter = ws.iter_rows()
-            for row in rows_iter:
-                row_values = [cell.value for cell in row]
-                if any(v is not None for v in row_values):
-                    header.extend(row_values)
-                    break
-
-    dtype = String if no_inference else None
-    series_data = []
-    for name, column_data in zip(header, zip(*rows_iter)):
-        if name or not drop_empty_cols:
-            values = [cell.value for cell in column_data]
-            if no_inference or (dtype := (schema_overrides or {}).get(name)) == String:  # type: ignore[assignment,arg-type]
-                # note: if we initialise the series with mixed-type data (eg: str/int)
-                # then the non-strings will become null, so we handle the cast here
-                values = [str(v) if (v is not None) else v for v in values]
-
-            s = pl.Series(name, values, dtype=dtype, strict=False)
-            series_data.append(s)
-
-    names = deduplicate_names(s.name for s in series_data)
-    df = pl.DataFrame(
-        dict(zip(names, series_data)),
-        schema_overrides=schema_overrides,
-        infer_schema_length=infer_schema_length,
-        strict=False,
-    )
-    df = _drop_null_data(
-        df,
-        raise_if_empty=raise_if_empty,
-        drop_empty_rows=drop_empty_rows,
-        drop_empty_cols=drop_empty_cols,
-    )
-    df = _reorder_columns(df, columns)
-    return df
-
-
 def _read_spreadsheet_calamine(
     parser: Any,
     *,
@@ -1038,6 +993,7 @@ def _read_spreadsheet_calamine(
     read_options: dict[str, Any],
     schema_overrides: SchemaDict | None,
     columns: Sequence[int] | Sequence[str] | None,
+    table_name: str | None = None,
     drop_empty_rows: bool,
     drop_empty_cols: bool,
     raise_if_empty: bool,
@@ -1048,11 +1004,14 @@ def _read_spreadsheet_calamine(
     fastexcel_version = parse_version(original_version := fastexcel.__version__)
 
     if fastexcel_version < (0, 9) and "schema_sample_rows" in read_options:
-        msg = f"a more recent version of `fastexcel` is required (>= 0.9; found {original_version})"
+        msg = f"a more recent version of `fastexcel` is required for 'schema_sample_rows' (>= 0.9; found {original_version})"
         raise ModuleUpgradeRequiredError(msg)
     if fastexcel_version < (0, 10, 2) and "use_columns" in read_options:
-        msg = f"a more recent version of `fastexcel` is required (>= 0.10.2; found {original_version})"
+        msg = f"a more recent version of `fastexcel` is required for 'use_columns' (>= 0.10.2; found {original_version})"
         raise ModuleUpgradeRequiredError(msg)
+    if table_name and fastexcel_version < (0, 12):
+        msg = f"a more recent version of `fastexcel` is required for 'table_name' (>= 0.12.0; found {original_version})"
+        raise ValueError(msg)
 
     if columns:
         read_options["use_columns"] = columns
@@ -1060,7 +1019,12 @@ def _read_spreadsheet_calamine(
     schema_overrides = schema_overrides or {}
     if read_options.get("schema_sample_rows") == 0:
         # ref: https://github.com/ToucanToco/fastexcel/issues/236
-        read_options["dtypes"] = dict.fromkeys(range(16384), "string")
+        del read_options["schema_sample_rows"]
+        read_options["dtypes"] = (
+            "string"
+            if fastexcel_version >= (0, 12, 1)
+            else dict.fromkeys(range(16384), "string")
+        )
     elif schema_overrides and fastexcel_version >= (0, 10):
         parser_dtypes = read_options.get("dtypes", {})
         for name, dtype in schema_overrides.items():
@@ -1071,10 +1035,6 @@ def _read_spreadsheet_calamine(
                     parser_dtypes[name] = "float"
                 elif base_dtype == String:
                     parser_dtypes[name] = "string"
-                elif base_dtype == Datetime:
-                    parser_dtypes[name] = "datetime"
-                elif base_dtype == Date:
-                    parser_dtypes[name] = "date"
                 elif base_dtype == Duration:
                     parser_dtypes[name] = "duration"
                 elif base_dtype == Boolean:
@@ -1086,8 +1046,16 @@ def _read_spreadsheet_calamine(
         ws = parser.load_sheet_by_name(name=sheet_name, **read_options)
         df = ws.to_polars()
     else:
-        ws_arrow = parser.load_sheet_eager(sheet_name, **read_options)
-        df = from_arrow(ws_arrow)
+        if table_name:
+            xl_table = parser.load_table(table_name, **read_options)
+            if sheet_name and sheet_name != xl_table.sheet_name:
+                msg = f"table named {table_name!r} not found in sheet {sheet_name!r}"
+                raise RuntimeError(msg)
+            df = xl_table.to_polars()
+        else:
+            ws_arrow = parser.load_sheet_eager(sheet_name, **read_options)
+            df = from_arrow(ws_arrow)
+
         if read_options.get("header_row", False) is None and not read_options.get(
             "column_names"
         ):
@@ -1103,7 +1071,30 @@ def _read_spreadsheet_calamine(
     # note: even if we applied parser dtypes we still re-apply schema_overrides
     # natively as we can refine integer/float types, temporal precision, etc.
     if schema_overrides:
-        df = df.cast(dtypes=schema_overrides)
+        lf, schema = df.lazy(), df.schema
+        str_to_temporal, updated_overrides = [], {}
+        for nm, tp in schema_overrides.items():
+            if schema[nm] != String:
+                updated_overrides[nm] = tp
+            elif tp == Datetime:
+                str_to_temporal.append(
+                    F.col(nm).str.to_datetime(
+                        time_unit=getattr(tp, "time_unit", None),
+                        time_zone=getattr(tp, "time_zone", None),
+                    )
+                )
+            elif tp == Date:
+                str_to_temporal.append(F.col(nm).str.to_date())
+            elif tp == Time:
+                str_to_temporal.append(F.col(nm).str.to_time())
+            else:
+                updated_overrides[nm] = tp
+
+        if str_to_temporal:
+            lf = lf.with_columns(*str_to_temporal)
+        if updated_overrides:
+            lf = lf.cast(dtypes=updated_overrides)
+        df = lf.collect()
 
     # standardise on string dtype for null columns in empty frame
     if df.is_empty():
@@ -1138,6 +1129,116 @@ def _read_spreadsheet_calamine(
     return df
 
 
+def _read_spreadsheet_openpyxl(
+    parser: Any,
+    *,
+    sheet_name: str | None,
+    read_options: dict[str, Any],
+    schema_overrides: SchemaDict | None,
+    columns: Sequence[int] | Sequence[str] | None,
+    table_name: str | None = None,
+    drop_empty_rows: bool,
+    drop_empty_cols: bool,
+    raise_if_empty: bool,
+) -> pl.DataFrame:
+    """Use the 'openpyxl' library to read data from the given worksheet."""
+    infer_schema_length = read_options.pop("infer_schema_length", None)
+    has_header = read_options.pop("has_header", True)
+    schema_overrides = schema_overrides or {}
+    no_inference = infer_schema_length == 0
+    header: list[str | None] = []
+
+    if table_name and not sheet_name:
+        sheet_name, n_tables = None, 0
+        for sheet in parser.worksheets:
+            n_tables += 1
+            if table_name in sheet.tables:
+                ws, sheet_name = sheet, sheet.title
+                break
+        if sheet_name is None:
+            msg = (
+                f"table named {table_name!r} not found in sheet {sheet_name!r}"
+                if n_tables
+                else f"no named tables found in sheet {sheet_name!r} (looking for {table_name!r})"
+            )
+            raise RuntimeError(msg)
+    else:
+        ws = parser[sheet_name]
+
+    # prefer detection of actual table objects; otherwise read
+    # data in the used worksheet range, dropping null columns
+    if tables := getattr(ws, "tables", None):
+        table = tables[table_name] if table_name else next(iter(tables.values()))
+        rows = list(ws[table.ref])
+        if not rows:
+            return _empty_frame(raise_if_empty)
+        if has_header:
+            header.extend(cell.value for cell in rows.pop(0))
+        else:
+            header.extend(f"column_{n}" for n in range(1, len(rows[0]) + 1))
+        if table.totalsRowCount:
+            rows = rows[: -table.totalsRowCount]
+        rows_iter = rows
+    elif table_name:
+        msg = f"no named tables found in sheet {sheet_name!r} (looking for {table_name!r})"
+        raise RuntimeError(msg)
+    else:
+        if not has_header:
+            if not (rows_iter := list(ws.iter_rows())):
+                return _empty_frame(raise_if_empty)
+            n_cols = len(rows_iter[0])
+            header = [f"column_{n}" for n in range(1, n_cols + 1)]
+        else:
+            rows_iter = ws.iter_rows()
+            for row in rows_iter:
+                row_values = [cell.value for cell in row]
+                if any(v is not None for v in row_values):
+                    header.extend(row_values)
+                    break
+
+    dtype = String if no_inference else None
+    series_data = []
+    for name, column_data in zip(header, zip(*rows_iter)):
+        if name or not drop_empty_cols:
+            values = [cell.value for cell in column_data]
+            if no_inference or (dtype := schema_overrides.get(name)) == String:  # type: ignore[assignment,arg-type]
+                # note: if we initialise the series with mixed-type data (eg: str/int)
+                # then the non-strings will become null, so we handle the cast here
+                values = [str(v) if (v is not None) else v for v in values]
+
+            if (tp := schema_overrides.get(name)) in (Date, Datetime, Time):  # type: ignore[operator,arg-type]
+                s = pl.Series(name, values, strict=False)
+                if s.dtype == String:
+                    if tp == Datetime:
+                        s = s.str.to_datetime(
+                            time_unit=getattr(tp, "time_unit", None),
+                            time_zone=getattr(tp, "time_zone", None),
+                        )
+                    elif tp == Date:
+                        s = s.str.strip_suffix(" 00:00:00").str.to_date()
+                    elif tp == Time:
+                        s = s.str.to_time()
+            else:
+                s = pl.Series(name, values, dtype=dtype, strict=False)
+            series_data.append(s)
+
+    names = deduplicate_names(s.name for s in series_data)
+    df = pl.DataFrame(
+        dict(zip(names, series_data)),
+        schema_overrides=schema_overrides,
+        infer_schema_length=infer_schema_length,
+        strict=False,
+    )
+    df = _drop_null_data(
+        df,
+        raise_if_empty=raise_if_empty,
+        drop_empty_rows=drop_empty_rows,
+        drop_empty_cols=drop_empty_cols,
+    )
+    df = _reorder_columns(df, columns)
+    return df
+
+
 def _read_spreadsheet_xlsx2csv(
     parser: Any,
     *,
@@ -1145,13 +1246,17 @@ def _read_spreadsheet_xlsx2csv(
     read_options: dict[str, Any],
     schema_overrides: SchemaDict | None,
     columns: Sequence[int] | Sequence[str] | None,
+    table_name: str | None = None,
     drop_empty_rows: bool,
     drop_empty_cols: bool,
     raise_if_empty: bool,
 ) -> pl.DataFrame:
     """Use the 'xlsx2csv' library to read data from the given worksheet."""
-    csv_buffer = StringIO()
+    if table_name:
+        msg = "the `table_name` parameter is not supported by the 'xlsx2csv' engine"
+        raise ValueError(msg)
 
+    csv_buffer = StringIO()
     with warnings.catch_warnings():
         # xlsx2csv version 0.8.4 throws a DeprecationWarning in Python 3.13
         # https://github.com/dilshod/xlsx2csv/pull/287

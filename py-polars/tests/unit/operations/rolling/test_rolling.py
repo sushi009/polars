@@ -233,7 +233,7 @@ def test_rolling_by_invalid() -> None:
     df = pl.DataFrame(
         {"a": [1, 2, 3], "b": [4, 5, 6]}, schema_overrides={"a": pl.Int16}
     ).sort("a")
-    msg = "unsupported data type: i16 for `window_size`, expected UInt64, UInt32, Int64, Int32, Datetime, Date, Duration, or Time"
+    msg = "unsupported data type: i16 for temporal/index column, expected UInt64, UInt32, Int64, Int32, Datetime, Date, Duration, or Time"
     with pytest.raises(InvalidOperationError, match=msg):
         df.select(pl.col("b").rolling_min_by("a", "2i"))
     df = pl.DataFrame({"a": [1, 2, 3], "b": [date(2020, 1, 1)] * 3}).sort("b")
@@ -604,10 +604,10 @@ def test_rolling_cov_corr_nulls() -> None:
     )
 
     val_1 = df1.select(
-        pl.rolling_corr("a", "lag_a", window_size=10, min_periods=5, ddof=1)
+        pl.rolling_corr("a", "lag_a", window_size=10, min_samples=5, ddof=1)
     )
     val_2 = df2.select(
-        pl.rolling_corr("a", "lag_a", window_size=10, min_periods=5, ddof=1)
+        pl.rolling_corr("a", "lag_a", window_size=10, min_samples=5, ddof=1)
     )
 
     df1_expected = pl.DataFrame({"a": [None, None, None, None, 0.62204709]})
@@ -617,10 +617,10 @@ def test_rolling_cov_corr_nulls() -> None:
     assert_frame_equal(val_2, df2_expected, atol=0.0000001)
 
     val_1 = df1.select(
-        pl.rolling_cov("a", "lag_a", window_size=10, min_periods=5, ddof=1)
+        pl.rolling_cov("a", "lag_a", window_size=10, min_samples=5, ddof=1)
     )
     val_2 = df2.select(
-        pl.rolling_cov("a", "lag_a", window_size=10, min_periods=5, ddof=1)
+        pl.rolling_cov("a", "lag_a", window_size=10, min_samples=5, ddof=1)
     )
 
     df1_expected = pl.DataFrame({"a": [None, None, None, None, 0.009445]})
@@ -815,8 +815,8 @@ def test_rolling(dtype: PolarsDataType) -> None:
     )
 
 
-def test_rolling_std_nulls_min_periods_1_20076() -> None:
-    result = pl.Series([1, 2, None, 4]).rolling_std(3, min_periods=1)
+def test_rolling_std_nulls_min_samples_1_20076() -> None:
+    result = pl.Series([1, 2, None, 4]).rolling_std(3, min_samples=1)
     expected = pl.Series(
         [None, 0.7071067811865476, 0.7071067811865476, 1.4142135623730951]
     )
@@ -995,13 +995,13 @@ def test_rolling_median_2() -> None:
         ),
     ],
 )
-def test_rolling_min_periods(
+def test_rolling_min_samples(
     dates: list[date], closed: ClosedInterval, expected: list[int]
 ) -> None:
     df = pl.DataFrame({"date": dates, "value": [1, 2, 3]}).sort("date")
     result = df.select(
         pl.col("value").rolling_sum_by(
-            "date", window_size="2d", min_periods=2, closed=closed
+            "date", window_size="2d", min_samples=2, closed=closed
         )
     )["value"]
     assert_series_equal(result, pl.Series("value", expected, pl.Int64))
@@ -1011,7 +1011,7 @@ def test_rolling_min_periods(
         df.sort("date", descending=True)
         .with_columns(
             pl.col("value").rolling_sum_by(
-                "date", window_size="2d", min_periods=2, closed=closed
+                "date", window_size="2d", min_samples=2, closed=closed
             )
         )
         .sort("date")["value"]

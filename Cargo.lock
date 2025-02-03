@@ -291,9 +291,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.83"
+version = "0.1.84"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "721cae7de5c34fbb2acd27e21e6d2cf7b886dce0c27388d46c4e6c47ea4318dd"
+checksum = "1b1244b10dcd56c92219da4e14caa97e312079e185f04ba3eea25061561dc0a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -927,9 +927,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.6"
+version = "1.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d6dbb628b8f8555f86d0323c2eb39e3ec81901f4b83e091db8a6a76d316a333"
+checksum = "a012a0df96dd6d06ba9a1b29d6402d1a5d77c6befd2566afdc26e10603dc93d7"
 dependencies = [
  "jobserver",
  "libc",
@@ -1041,15 +1041,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15efe7a882b08f34e38556b14f2fb3daa98769d06c7f0c1b076dfd0d983bc892"
 dependencies = [
  "error-code",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.52"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c682c223677e0e5b6b7f63a64b9351844c3f1b1678a68b7ee617e30fb082620e"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -1512,7 +1503,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c936bfdafb507ebbf50b8074c54fa31c5be9a1e7e5f467dd659697041407d07c"
 dependencies = [
  "crc32fast",
- "libz-ng-sys",
+ "libz-rs-sys",
  "miniz_oxide",
 ]
 
@@ -2265,12 +2256,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
 
 [[package]]
-name = "itoap"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9028f49264629065d057f340a86acb84867925865f73bbf8d47b4d149a7e88b8"
-
-[[package]]
 name = "jemalloc-sys"
 version = "0.5.4+5.3.0-patched"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2467,13 +2452,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "libz-ng-sys"
-version = "1.1.20"
+name = "libz-rs-sys"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f0f7295a34685977acb2e8cc8b08ee4a8dffd6cf278eeccddbe1ed55ba815d5"
+checksum = "a90e19106f1b2c93f1fa6cdeec2e56facbf2e403559c1e1c0ddcc6d46e979cdf"
 dependencies = [
- "cmake",
- "libc",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -2618,28 +2602,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "multiversion"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4851161a11d3ad0bf9402d90ffc3967bf231768bfd7aeb61755ad06dbf1a142"
-dependencies = [
- "multiversion-macros",
- "target-features",
-]
-
-[[package]]
-name = "multiversion-macros"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79a74ddee9e0c27d2578323c13905793e91622148f138ba29738f9dddb835e90"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "target-features",
 ]
 
 [[package]]
@@ -3144,12 +3106,13 @@ dependencies = [
 
 [[package]]
 name = "polars"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "apache-avro",
  "arrow-buffer",
  "avro-schema",
+ "chrono",
  "either",
  "ethnum",
  "futures",
@@ -3174,7 +3137,7 @@ dependencies = [
 
 [[package]]
 name = "polars-arrow"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "arrow-array",
@@ -3183,7 +3146,6 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "async-stream",
- "atoi",
  "atoi_simd",
  "avro-schema",
  "bytemuck",
@@ -3203,9 +3165,7 @@ dependencies = [
  "hex",
  "indexmap",
  "itoa",
- "itoap",
  "lz4",
- "multiversion",
  "num-traits",
  "parking_lot",
  "polars-arrow-format",
@@ -3245,7 +3205,7 @@ dependencies = [
 
 [[package]]
 name = "polars-compute"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "atoi_simd",
  "bytemuck",
@@ -3253,7 +3213,6 @@ dependencies = [
  "either",
  "fast-float2",
  "itoa",
- "itoap",
  "num-traits",
  "polars-arrow",
  "polars-error",
@@ -3266,7 +3225,7 @@ dependencies = [
 
 [[package]]
 name = "polars-core"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "bincode",
@@ -3303,7 +3262,7 @@ dependencies = [
 
 [[package]]
 name = "polars-doc-examples"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3317,7 +3276,7 @@ dependencies = [
 
 [[package]]
 name = "polars-dylib"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "polars",
  "polars-arrow",
@@ -3331,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "polars-error"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "avro-schema",
  "object_store",
@@ -3343,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "polars-expr"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "bitflags",
@@ -3366,7 +3325,7 @@ dependencies = [
 
 [[package]]
 name = "polars-ffi"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "polars-arrow",
  "polars-core",
@@ -3374,7 +3333,7 @@ dependencies = [
 
 [[package]]
 name = "polars-io"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "async-trait",
@@ -3414,6 +3373,7 @@ dependencies = [
  "serde_json",
  "simd-json",
  "simdutf8",
+ "strum_macros",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -3423,7 +3383,7 @@ dependencies = [
 
 [[package]]
 name = "polars-json"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "chrono",
@@ -3444,10 +3404,11 @@ dependencies = [
 
 [[package]]
 name = "polars-lazy"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "bitflags",
+ "chrono",
  "futures",
  "memchr",
  "once_cell",
@@ -3472,7 +3433,7 @@ dependencies = [
 
 [[package]]
 name = "polars-mem-engine"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "futures",
  "memmap2",
@@ -3493,7 +3454,7 @@ dependencies = [
 
 [[package]]
 name = "polars-ops"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3509,6 +3470,7 @@ dependencies = [
  "jsonpath_lib_polars_vendor",
  "memchr",
  "num-traits",
+ "once_cell",
  "polars-arrow",
  "polars-compute",
  "polars-core",
@@ -3524,13 +3486,14 @@ dependencies = [
  "serde",
  "serde_json",
  "strum_macros",
+ "unicode-normalization",
  "unicode-reverse",
  "version_check",
 ]
 
 [[package]]
 name = "polars-parquet"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "async-stream",
@@ -3571,7 +3534,7 @@ dependencies = [
 
 [[package]]
 name = "polars-pipe"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-queue",
@@ -3579,6 +3542,7 @@ dependencies = [
  "futures",
  "hashbrown 0.15.2",
  "num-traits",
+ "once_cell",
  "polars-arrow",
  "polars-compute",
  "polars-core",
@@ -3596,7 +3560,7 @@ dependencies = [
 
 [[package]]
 name = "polars-plan"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "bitflags",
@@ -3634,13 +3598,15 @@ dependencies = [
 
 [[package]]
 name = "polars-python"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "arboard",
  "bincode",
  "bytemuck",
  "bytes",
+ "chrono",
+ "chrono-tz",
  "either",
  "flate2",
  "itoa",
@@ -3650,6 +3616,8 @@ dependencies = [
  "numpy",
  "once_cell",
  "polars",
+ "polars-arrow",
+ "polars-compute",
  "polars-core",
  "polars-error",
  "polars-expr",
@@ -3663,6 +3631,7 @@ dependencies = [
  "polars-time",
  "polars-utils",
  "pyo3",
+ "rayon",
  "recursive",
  "serde_json",
  "thiserror 2.0.9",
@@ -3671,7 +3640,7 @@ dependencies = [
 
 [[package]]
 name = "polars-row"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -3683,7 +3652,7 @@ dependencies = [
 
 [[package]]
 name = "polars-schema"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "indexmap",
  "polars-error",
@@ -3694,11 +3663,9 @@ dependencies = [
 
 [[package]]
 name = "polars-sql"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "hex",
- "once_cell",
- "polars-arrow",
  "polars-core",
  "polars-error",
  "polars-lazy",
@@ -3707,14 +3674,14 @@ dependencies = [
  "polars-time",
  "polars-utils",
  "rand",
+ "regex",
  "serde",
- "serde_json",
  "sqlparser",
 ]
 
 [[package]]
 name = "polars-stream"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "atomic-waker",
  "crossbeam-deque",
@@ -3742,13 +3709,14 @@ dependencies = [
 
 [[package]]
 name = "polars-time"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
- "atoi",
+ "atoi_simd",
  "bytemuck",
  "chrono",
  "chrono-tz",
  "now",
+ "num-traits",
  "once_cell",
  "polars-arrow",
  "polars-compute",
@@ -3756,6 +3724,7 @@ dependencies = [
  "polars-error",
  "polars-ops",
  "polars-utils",
+ "rayon",
  "regex",
  "serde",
  "strum_macros",
@@ -3763,7 +3732,7 @@ dependencies = [
 
 [[package]]
 name = "polars-utils"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "ahash",
  "bincode",
@@ -3878,7 +3847,7 @@ dependencies = [
 
 [[package]]
 name = "py-polars"
-version = "1.19.0"
+version = "1.21.0"
 dependencies = [
  "jemallocator",
  "libc",
@@ -3890,11 +3859,13 @@ dependencies = [
 
 [[package]]
 name = "pyo3"
-version = "0.23.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3.git?branch=release-0.23#f209b1a87708a03f2234b744bb64a9f9825ec768"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57fe09249128b3173d092de9523eaa75136bf7ba85e0d69eca241c7939c933cc"
 dependencies = [
  "cfg-if",
  "chrono",
+ "chrono-tz",
  "indoc",
  "inventory",
  "libc",
@@ -3909,8 +3880,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-build-config"
-version = "0.23.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3.git?branch=release-0.23#f209b1a87708a03f2234b744bb64a9f9825ec768"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cd3927b5a78757a0d71aa9dff669f903b1eb64b54142a9bd9f757f8fde65fd7"
 dependencies = [
  "once_cell",
  "target-lexicon",
@@ -3918,8 +3890,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-ffi"
-version = "0.23.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3.git?branch=release-0.23#f209b1a87708a03f2234b744bb64a9f9825ec768"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dab6bb2102bd8f991e7749f130a70d05dd557613e39ed2deeee8e9ca0c4d548d"
 dependencies = [
  "libc",
  "pyo3-build-config",
@@ -3927,8 +3900,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros"
-version = "0.23.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3.git?branch=release-0.23#f209b1a87708a03f2234b744bb64a9f9825ec768"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91871864b353fd5ffcb3f91f2f703a22a9797c91b9ab497b1acac7b07ae509c7"
 dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
@@ -3938,8 +3912,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros-backend"
-version = "0.23.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3.git?branch=release-0.23#f209b1a87708a03f2234b744bb64a9f9825ec768"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43abc3b80bc20f3facd86cd3c60beed58c3e2aa26213f3cda368de39c60a27e4"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -4791,9 +4766,9 @@ dependencies = [
 
 [[package]]
 name = "sqlparser"
-version = "0.52.0"
+version = "0.53.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a875d8cd437cc8a97e9aeaeea352ec9a19aea99c23e9effb17757291de80b08"
+checksum = "05a528114c392209b3264855ad491fcce534b94a38771b0a0b97a79379275ce8"
 dependencies = [
  "log",
 ]
@@ -4925,12 +4900,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "target-features"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1bbb9f3c5c463a01705937a24fdabc5047929ac764b2d5b9cf681c1f5041ed5"
-
-[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4938,12 +4907,13 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "tempfile"
-version = "3.14.0"
+version = "3.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28cce251fcbc87fac86a866eeb0d6c2d536fc16d06f184bb61aeae11aa4cee0c"
+checksum = "9a8a559c81686f576e8cd0290cd2a24a2a9ad80c98b3478856500fcbd7acd704"
 dependencies = [
  "cfg-if",
  "fastrand",
+ "getrandom",
  "once_cell",
  "rustix",
  "windows-sys 0.59.0",
@@ -5246,6 +5216,15 @@ name = "unicode-ident"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-reverse"
@@ -5870,6 +5849,12 @@ dependencies = [
  "quote",
  "syn 2.0.94",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aada01553a9312bad4b9569035a1f12b05e5ec9770a1a4b323757356928944f8"
 
 [[package]]
 name = "zstd"

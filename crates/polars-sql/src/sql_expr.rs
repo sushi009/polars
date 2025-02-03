@@ -9,7 +9,6 @@
 use std::fmt::Display;
 use std::ops::Div;
 
-use polars_core::export::regex;
 use polars_core::prelude::*;
 use polars_lazy::prelude::*;
 use polars_plan::prelude::typed_lit;
@@ -246,7 +245,7 @@ impl SQLExprVisitor<'_> {
             },
             SQLExpr::UnaryOp { op, expr } => self.visit_unary_op(op, expr),
             SQLExpr::Value(value) => self.visit_literal(value),
-            SQLExpr::Wildcard => Ok(Expr::Wildcard),
+            SQLExpr::Wildcard(_) => Ok(Expr::Wildcard),
             e @ SQLExpr::Case { .. } => self.visit_case_when_then(e),
             other => {
                 polars_bail!(SQLInterface: "expression {:?} is not currently supported", other)
@@ -357,7 +356,11 @@ impl SQLExprVisitor<'_> {
                 .replace('%', ".*")
                 .replace('_', ".");
 
-            rx = format!("^{}{}$", if case_insensitive { "(?i)" } else { "" }, rx);
+            rx = format!(
+                "^{}{}$",
+                if case_insensitive { "(?is)" } else { "(?s)" },
+                rx
+            );
 
             let expr = self.visit_expr(expr)?;
             let matches = expr.str().contains(lit(rx), true);

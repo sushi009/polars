@@ -210,6 +210,17 @@ impl PartialEq for DataType {
 impl Eq for DataType {}
 
 impl DataType {
+    pub fn new_idxsize() -> Self {
+        #[cfg(feature = "bigidx")]
+        {
+            Self::UInt64
+        }
+        #[cfg(not(feature = "bigidx"))]
+        {
+            Self::UInt32
+        }
+    }
+
     /// Standardize timezones to consistent values.
     pub(crate) fn canonical_timezone(tz: &Option<PlSmallStr>) -> Option<TimeZone> {
         match tz.as_deref() {
@@ -360,7 +371,11 @@ impl DataType {
         if self == to {
             return Some(true);
         }
-        if self.is_numeric() && to.is_numeric() {
+        if self.is_primitive_numeric() && to.is_primitive_numeric() {
+            return Some(true);
+        }
+
+        if self.is_null() {
             return Some(true);
         }
 
@@ -376,7 +391,7 @@ impl DataType {
             (D::Object(_, _), _) | (_, D::Object(_, _)) => false,
 
             (D::Boolean, dt) | (dt, D::Boolean) => match dt {
-                dt if dt.is_numeric() => true,
+                dt if dt.is_primitive_numeric() => true,
                 #[cfg(feature = "dtype-decimal")]
                 D::Decimal(_, _) => true,
                 D::String | D::Binary => true,
@@ -445,7 +460,7 @@ impl DataType {
     }
 
     pub fn is_supported_list_arithmetic_input(&self) -> bool {
-        self.is_numeric() || self.is_bool() || self.is_null()
+        self.is_primitive_numeric() || self.is_bool() || self.is_null()
     }
 
     /// Check if this [`DataType`] is a logical type
@@ -460,17 +475,17 @@ impl DataType {
     }
 
     /// Check if datatype is a primitive type. By that we mean that
-    /// it is not a container type.
+    /// it is not a nested or logical type.
     pub fn is_primitive(&self) -> bool {
-        self.is_numeric()
+        self.is_primitive_numeric()
             | matches!(
                 self,
                 DataType::Boolean | DataType::String | DataType::Binary
             )
     }
 
-    /// Check if this [`DataType`] is a basic numeric type (excludes Decimal).
-    pub fn is_numeric(&self) -> bool {
+    /// Check if this [`DataType`] is a primitive numeric type (excludes Decimal).
+    pub fn is_primitive_numeric(&self) -> bool {
         self.is_float() || self.is_integer()
     }
 
@@ -588,7 +603,7 @@ impl DataType {
         let is_cat = false;
 
         let phys = self.to_physical();
-        (phys.is_numeric()
+        (phys.is_primitive_numeric()
             || self.is_decimal()
             || matches!(
                 phys,
@@ -869,12 +884,12 @@ impl DataType {
         }
     }
 
-    // Answers if this type matches the given type of a schema.
-    //
-    // Allows (nested) Null types in this type to match any type in the schema,
-    // but not vice versa. In such a case Ok(true) is returned, because a cast
-    // is necessary. If no cast is necessary Ok(false) is returned, and an
-    // error is returned if the types are incompatible.
+    /// Answers if this type matches the given type of a schema.
+    ///
+    /// Allows (nested) Null types in this type to match any type in the schema,
+    /// but not vice versa. In such a case Ok(true) is returned, because a cast
+    /// is necessary. If no cast is necessary Ok(false) is returned, and an
+    /// error is returned if the types are incompatible.
     pub fn matches_schema_type(&self, schema_type: &DataType) -> PolarsResult<bool> {
         match (self, schema_type) {
             (DataType::List(l), DataType::List(r)) => l.matches_schema_type(r),

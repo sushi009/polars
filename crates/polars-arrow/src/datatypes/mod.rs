@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 pub use field::{Field, DTYPE_CATEGORICAL, DTYPE_ENUM_VALUES};
 pub use physical_type::*;
+use polars_utils::itertools::Itertools;
 use polars_utils::pl_str::PlSmallStr;
 pub use schema::{ArrowSchema, ArrowSchemaRef};
 #[cfg(feature = "serde")]
@@ -160,10 +161,7 @@ pub enum ArrowDataType {
     /// Decimal backed by 256 bits
     Decimal256(usize, usize),
     /// Extension type.
-    /// - name
-    /// - physical type
-    /// - metadata
-    Extension(PlSmallStr, Box<ArrowDataType>, Option<PlSmallStr>),
+    Extension(Box<ExtensionType>),
     /// A binary type that inlines small values
     /// and can intern bytes.
     BinaryView,
@@ -175,7 +173,22 @@ pub enum ArrowDataType {
     /// A nested datatype that can represent slots of differing types.
     /// Third argument represents mode
     #[cfg_attr(feature = "serde", serde(skip))]
-    Union(Vec<Field>, Option<Vec<i32>>, UnionMode),
+    Union(Box<UnionType>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ExtensionType {
+    pub name: PlSmallStr,
+    pub inner: ArrowDataType,
+    pub metadata: Option<PlSmallStr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UnionType {
+    pub fields: Vec<Field>,
+    pub ids: Option<Vec<i32>>,
+    pub mode: UnionMode,
 }
 
 #[cfg(feature = "arrow_rs")]
@@ -217,15 +230,17 @@ impl From<ArrowDataType> for arrow_schema::DataType {
             },
             ArrowDataType::LargeList(f) => Self::LargeList(Arc::new((*f).into())),
             ArrowDataType::Struct(f) => Self::Struct(f.into_iter().map(ArrowField::from).collect()),
-            ArrowDataType::Union(fields, Some(ids), mode) => {
-                let ids = ids.into_iter().map(|x| x as _);
-                let fields = fields.into_iter().map(ArrowField::from);
-                Self::Union(UnionFields::new(ids, fields), mode.into())
-            },
-            ArrowDataType::Union(fields, None, mode) => {
-                let ids = 0..fields.len() as i8;
-                let fields = fields.into_iter().map(ArrowField::from);
-                Self::Union(UnionFields::new(ids, fields), mode.into())
+            ArrowDataType::Union(inner) => {
+                let ids = inner
+                    .ids
+                    .as_ref()
+                    .map(|ids| ids.iter().map(|id| *id as i8).collect_vec())
+                    .unwrap_or_else(|| (0..inner.fields.len() as i8).collect_vec());
+                let fields = inner
+                    .fields
+                    .iter()
+                    .map(|f| Arc::new(ArrowField::from(f.clone())));
+                Self::Union(UnionFields::new(ids, fields), inner.mode.into())
             },
             ArrowDataType::Map(f, ordered) => Self::Map(Arc::new((*f).into()), ordered),
             ArrowDataType::Dictionary(key, value, _) => Self::Dictionary(
@@ -238,7 +253,7 @@ impl From<ArrowDataType> for arrow_schema::DataType {
             ArrowDataType::Decimal256(precision, scale) => {
                 Self::Decimal256(precision as _, scale as _)
             },
-            ArrowDataType::Extension(_, d, _) => (*d).into(),
+            ArrowDataType::Extension(d) => (d.inner.clone()).into(),
             ArrowDataType::Utf8View => Self::LargeUtf8,
             ArrowDataType::BinaryView => Self::LargeBinary,
             ArrowDataType::Int128 => unimplemented!("'ArrowDataType::Int128' datatype"),
@@ -286,7 +301,11 @@ impl From<arrow_schema::DataType> for ArrowDataType {
             DataType::Union(fields, mode) => {
                 let ids = fields.iter().map(|(x, _)| x as _).collect();
                 let fields = fields.iter().map(|(_, f)| f.into()).collect();
-                Self::Union(fields, Some(ids), mode.into())
+                Self::Union(Box::new(UnionType {
+                    fields,
+                    ids: Some(ids),
+                    mode: mode.into(),
+                }))
             },
             DataType::Map(f, ordered) => Self::Map(Box::new(f.into()), ordered),
             DataType::Dictionary(key, value) => {
@@ -482,10 +501,10 @@ impl ArrowDataType {
             FixedSizeList(_, _) => PhysicalType::FixedSizeList,
             LargeList(_) => PhysicalType::LargeList,
             Struct(_) => PhysicalType::Struct,
-            Union(_, _, _) => PhysicalType::Union,
+            Union(_) => PhysicalType::Union,
             Map(_, _) => PhysicalType::Map,
             Dictionary(key, _, _) => PhysicalType::Dictionary(*key),
-            Extension(_, key, _) => key.to_physical_type(),
+            Extension(ext) => ext.inner.to_physical_type(),
             Unknown => unimplemented!(),
         }
     }
@@ -527,9 +546,9 @@ impl ArrowDataType {
                     .collect(),
             ),
             Dictionary(keys, _, _) => (*keys).into(),
-            Union(_, _, _) => unimplemented!(),
+            Union(_) => unimplemented!(),
             Map(_, _) => unimplemented!(),
-            Extension(_, inner, _) => inner.underlying_physical_type(),
+            Extension(ext) => ext.inner.underlying_physical_type(),
             _ => self.clone(),
         }
     }
@@ -540,7 +559,7 @@ impl ArrowDataType {
     pub fn to_logical_type(&self) -> &ArrowDataType {
         use ArrowDataType::*;
         match self {
-            Extension(_, key, _) => key.to_logical_type(),
+            Extension(ext) => ext.inner.to_logical_type(),
             _ => self,
         }
     }
@@ -563,10 +582,10 @@ impl ArrowDataType {
                 | D::LargeList(_)
                 | D::FixedSizeList(_, _)
                 | D::Struct(_)
-                | D::Union(_, _, _)
+                | D::Union(_)
                 | D::Map(_, _)
                 | D::Dictionary(_, _, _)
-                | D::Extension(_, _, _)
+                | D::Extension(_)
         )
     }
 
@@ -644,11 +663,10 @@ impl ArrowDataType {
             | D::FixedSizeList(field, _)
             | D::Map(field, _)
             | D::LargeList(field) => field.dtype().contains_dictionary(),
-            D::Struct(fields) | D::Union(fields, _, _) => {
-                fields.iter().any(|f| f.dtype().contains_dictionary())
-            },
+            D::Struct(fields) => fields.iter().any(|f| f.dtype().contains_dictionary()),
+            D::Union(union) => union.fields.iter().any(|f| f.dtype().contains_dictionary()),
             D::Dictionary(_, _, _) => true,
-            D::Extension(_, dtype, _) => dtype.contains_dictionary(),
+            D::Extension(ext) => ext.inner.contains_dictionary(),
         }
     }
 }
